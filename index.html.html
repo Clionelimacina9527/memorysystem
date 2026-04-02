@@ -1,0 +1,814 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>工作记录总结</title>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@300;400;500;600&display=swap" rel="stylesheet">
+
+<script type="module">
+  import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
+  import { getAuth, createUserWithEmailAndPassword, signInWithEmailAndPassword, signOut, onAuthStateChanged, updateProfile }
+    from "https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js";
+  import { getFirestore, collection, addDoc, query, orderBy, onSnapshot, doc, deleteDoc, updateDoc, serverTimestamp, getDocs }
+    from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
+
+  const firebaseConfig = {
+    apiKey: "AIzaSyCHj9xJYdmAfgcdAU4nj0r9bVkogF1gxBU",
+    authDomain: "work-diary-8f1e8.firebaseapp.com",
+    projectId: "work-diary-8f1e8",
+    storageBucket: "work-diary-8f1e8.firebasestorage.app",
+    messagingSenderId: "661877929510",
+    appId: "1:661877929510:web:788d98426f067eb79658e7",
+  };
+
+  const app = initializeApp(firebaseConfig);
+  const auth = getAuth(app);
+  const db = getFirestore(app);
+
+  let currentUser = null;
+  let allRecords = [];
+  let newRowActive = false;
+  let selectedRow = null; // currently highlighted row
+
+  onAuthStateChanged(auth, user => {
+    currentUser = user;
+    document.getElementById('loadingScreen').style.display = 'none';
+    if (user) {
+      document.getElementById('authScreen').style.display = 'none';
+      document.getElementById('appScreen').style.display = 'block';
+      document.getElementById('topUserName').textContent = user.displayName || user.email.split('@')[0];
+      startListening();
+    } else {
+      document.getElementById('authScreen').style.display = 'flex';
+      document.getElementById('appScreen').style.display = 'none';
+    }
+  });
+
+  function startListening() {
+    const q = query(collection(db, 'worklogs'), orderBy('date', 'desc'));
+    onSnapshot(q, snap => {
+      allRecords = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      updateMemberDropdown(allRecords);
+      renderTable();
+      checkNotifications();
+    }, () => showToast('加载失败，请检查 Firestore 规则'));
+  }
+
+  window.doLogin = async () => {
+    const email = document.getElementById('loginEmail').value.trim();
+    const pass  = document.getElementById('loginPass').value;
+    document.getElementById('authError').textContent = '';
+    if (!email || !pass) { document.getElementById('authError').textContent = '请填写邮箱和密码'; return; }
+    try { await signInWithEmailAndPassword(auth, email, pass); }
+    catch(e) { document.getElementById('authError').textContent = fmtErr(e.code); }
+  };
+
+  // ⚠️ 修改这里可以更换邀请码
+  const INVITE_CODE = 'work2026';
+  // ⚠️ 管理员邮箱（拥有删除/编辑所有人记录的权限）
+  const ADMIN_EMAIL = '1065857324@qq.com';
+  const isAdmin = () => currentUser?.email === ADMIN_EMAIL;
+
+  window.doRegister = async () => {
+    const name   = document.getElementById('regName').value.trim();
+    const email  = document.getElementById('regEmail').value.trim();
+    const pass   = document.getElementById('regPass').value;
+    const invite = document.getElementById('regInvite').value.trim();
+    const errEl  = document.getElementById('regError');
+    const btn    = document.querySelector('#registerForm .btn-auth');
+    errEl.textContent = '';
+    if (!name||!email||!pass||!invite) { errEl.textContent = '请填写所有字段'; return; }
+    if (invite !== INVITE_CODE) { errEl.textContent = '邀请码不正确'; return; }
+    if (pass.length < 6) { errEl.textContent = '密码至少6位'; return; }
+    btn.textContent = '注册中…'; btn.disabled = true;
+    try {
+      const cred = await createUserWithEmailAndPassword(auth, email, pass);
+      await updateProfile(cred.user, { displayName: name });
+    } catch(e) {
+      errEl.textContent = fmtErr(e.code);
+      btn.textContent = '注册'; btn.disabled = false;
+    }
+  };
+
+  window.doLogout = () => signOut(auth);
+
+  function fmtErr(code) {
+    return ({'auth/email-already-in-use':'邮箱已被注册','auth/invalid-credential':'邮箱或密码错误',
+      'auth/user-not-found':'账号不存在','auth/wrong-password':'密码错误',
+      'auth/too-many-requests':'尝试过于频繁'})[code] || '失败：'+code;
+  }
+
+  window.switchAuthTab = (tab) => {
+    document.querySelectorAll('.auth-tab').forEach((b,i) => b.classList.toggle('active', (i===0)===(tab==='login')));
+    document.getElementById('loginForm').classList.toggle('active', tab==='login');
+    document.getElementById('registerForm').classList.toggle('active', tab==='register');
+    document.getElementById('authError').textContent = '';
+  };
+
+  function updateMemberDropdown(list) {
+    const sel = document.getElementById('filterUser');
+    if (!sel) return;
+    const current = sel.value;
+    const names = [...new Set(list.map(r => r.submitter).filter(Boolean))].sort();
+    sel.innerHTML = '<option value="">全部成员</option>' + names.map(n => `<option value="${n}" ${n===current?'selected':''}>${n}</option>`).join('');
+  }
+
+  window.renderTable = () => {
+    const filterUser = document.getElementById('filterUser').value;
+    const dateFrom   = document.getElementById('filterDateFrom').value;
+    const dateTo     = document.getElementById('filterDateTo').value;
+
+    let list = allRecords;
+    if (filterUser) list = list.filter(r => r.submitter === filterUser);
+    if (dateFrom) list = list.filter(r => r.date >= dateFrom);
+    if (dateTo)   list = list.filter(r => r.date <= dateTo);
+
+    const tbody = document.getElementById('tableBody');
+    let html = '';
+
+    if (newRowActive) {
+      const today = new Date().toISOString().split('T')[0];
+      html += `<tr class="new-row">
+        <td class="nc"><input class="nr-inp" type="date" id="nr_date" value="${today}"/></td>
+        <td class="nc"><input class="nr-inp" type="text" id="nr_done" placeholder="今日完成…"/></td>
+        <td class="nc"><input class="nr-inp" type="text" id="nr_plan" placeholder="明日计划…"/></td>
+        <td class="nc"><input class="nr-inp" type="text" id="nr_problem" placeholder="遇到问题…"/></td>
+        <td class="nc"><input class="nr-inp" type="text" id="nr_thinking" placeholder="感悟思考…"/></td>
+        <td class="nc"><input class="nr-inp" type="text" id="nr_important" placeholder="重要备注…"/></td>
+        <td class="td-sub">${currentUser?.displayName||''}</td>
+        <td class="td-act">
+          <button class="btn-sv" onclick="saveNewRow()">✓</button>
+          <button class="btn-cx" onclick="cancelNewRow()">✕</button>
+        </td>
+      </tr>`;
+    }
+
+    if (!list.length) {
+      html += `<tr><td colspan="9" class="empty-msg">暂无记录，点击右上角「新增记录」开始填写</td></tr>`;
+    } else {
+      html += list.map(r => {
+        const own = r.authorId === currentUser?.uid;
+        const canEdit = own || isAdmin();
+        const trunc = (s, n=28) => s && s.length > n ? s.substring(0,n)+'…' : (s||'');
+        return `<tr data-rid="${r.id}" class="data-row" onclick="toggleExpand('${r.id}')">
+          <td class="td-date${canEdit?' ed':''}" data-id="${r.id}" data-field="date">${r.date||''}</td>
+          <td class="td-cell${canEdit?' ed':''}" data-id="${r.id}" data-field="done">${trunc(r.done)}</td>
+          <td class="td-cell${canEdit?' ed':''}" data-id="${r.id}" data-field="plan">${trunc(r.plan)}</td>
+          <td class="td-cell${canEdit?' ed':''}" data-id="${r.id}" data-field="problem">${trunc(r.problem)}</td>
+          <td class="td-cell${canEdit?' ed':''}" data-id="${r.id}" data-field="thinking">${trunc(r.thinking)}</td>
+          <td class="td-cell${canEdit?' ed':''}" data-id="${r.id}" data-field="important">${trunc(r.important)}</td>
+          <td class="td-sub">${r.submitter||''}</td>
+          <td class="td-act" onclick="event.stopPropagation()">
+            <button class="btn-comment" onclick="toggleComment('${r.id}')">💬 <span id="cc_${r.id}">0</span></button>
+            ${canEdit?`<button class="btn-del" onclick="delRecord('${r.id}')">删除</button>`:''}
+          </td>
+        </tr>
+        <tr class="expand-row" id="er_${r.id}" style="display:none">
+          <td colspan="9" class="expand-panel">
+            <div class="expand-fields">
+              ${r.done?`<div class="ef-item"><span class="ef-label">今日完成</span><span class="ef-val">${r.done}</span></div>`:''}
+              ${r.plan?`<div class="ef-item"><span class="ef-label">明日计划</span><span class="ef-val">${r.plan}</span></div>`:''}
+              ${r.problem?`<div class="ef-item"><span class="ef-label">遇到问题</span><span class="ef-val">${r.problem}</span></div>`:''}
+              ${r.thinking?`<div class="ef-item"><span class="ef-label">感悟思考</span><span class="ef-val">${r.thinking}</span></div>`:''}
+              ${r.important?`<div class="ef-item"><span class="ef-label">重要备注</span><span class="ef-val">${r.important}</span></div>`:''}
+
+            </div>
+            <div class="expand-divider"></div>
+            <div class="comment-list" id="cl_${r.id}"></div>
+            <div class="comment-input-row" id="cbox_${r.id}" style="display:none">
+              <div class="comment-avatar">${(currentUser?.displayName||'?')[0].toUpperCase()}</div>
+              <input class="comment-inp" id="ci_${r.id}" placeholder="写下你的疑问或回复…" onkeydown="if(event.key==='Enter')submitComment('${r.id}')"/>
+              <button class="comment-send" onclick="submitComment('${r.id}')">发送</button>
+              <button class="comment-cancel" onclick="toggleReplyBox('${r.id}')">取消</button>
+            </div>
+          </td>
+        </tr>`;
+      }).join('');
+    }
+
+    tbody.innerHTML = html;
+
+    // Row click → highlight that row
+    document.querySelectorAll('tbody tr:not(.new-row)').forEach(tr => {
+      tr.addEventListener('click', () => {
+        document.querySelectorAll('tbody tr').forEach(r => r.classList.remove('row-selected'));
+        tr.classList.add('row-selected');
+        selectedRow = tr;
+      });
+    });
+
+    // Cell click → inline edit (own rows only)
+    document.querySelectorAll('td.ed').forEach(td => {
+      td.addEventListener('click', e => {
+        e.stopPropagation();
+        // highlight row
+        document.querySelectorAll('tbody tr').forEach(r => r.classList.remove('row-selected'));
+        td.closest('tr').classList.add('row-selected');
+        startEdit(td);
+      });
+    });
+
+    if (newRowActive) setTimeout(() => document.getElementById('nr_done')?.focus(), 30);
+    loadAllCommentCounts(list);
+  };
+
+  // ── Inline edit ───────────────────────────────────────────────
+  function startEdit(td) {
+    if (td.dataset.editing) return;
+    td.dataset.editing = '1';
+
+    const id    = td.dataset.id;
+    const field = td.dataset.field;
+    const rec   = allRecords.find(r => r.id === id);
+    if (!rec) return;
+
+    const origVal  = rec[field] || '';
+    const origText = td.textContent;
+    const isDate   = field === 'date';
+
+    // Apply editing style to td: white bg + blue border
+    td.classList.add('active-cell');
+    td.innerHTML = `<input class="ghost-input" type="${isDate?'date':'text'}" value="${origVal}"/>`;
+
+    const inp = td.querySelector('input');
+    inp.focus();
+    if (!isDate) inp.selectionStart = inp.selectionEnd = inp.value.length;
+
+    const allEd = () => Array.from(document.querySelectorAll('td.ed'));
+
+    const commit = async () => {
+      const newVal = inp.value.trim();
+      delete td.dataset.editing;
+      td.classList.remove('active-cell');
+      td.textContent = newVal;
+      td.addEventListener('click', e => { e.stopPropagation(); document.querySelectorAll('tbody tr').forEach(r=>r.classList.remove('row-selected')); td.closest('tr').classList.add('row-selected'); startEdit(td); }, { once:true });
+      if (newVal === origVal) return;
+      try {
+        await updateDoc(doc(db, 'worklogs', id), { [field]: newVal });
+        showToast('已保存 ✓');
+      } catch {
+        showToast('保存失败');
+        td.textContent = origText;
+      }
+    };
+
+    inp.addEventListener('blur', commit);
+    inp.addEventListener('keydown', e => {
+      if (e.key === 'Enter') { e.preventDefault(); inp.blur(); }
+      if (e.key === 'Escape') {
+        inp.removeEventListener('blur', commit);
+        delete td.dataset.editing;
+        td.classList.remove('active-cell');
+        td.textContent = origText;
+        td.addEventListener('click', e => { e.stopPropagation(); startEdit(td); }, { once:true });
+      }
+      if (e.key === 'Tab') {
+        e.preventDefault();
+        const eds = allEd();
+        const idx = eds.indexOf(td);
+        inp.removeEventListener('blur', commit);
+        commit().then(() => {
+          const next = eds[e.shiftKey ? idx-1 : idx+1];
+          if (next) next.click();
+        });
+      }
+    });
+  }
+
+
+  // ── Comments ─────────────────────────────────────────────────
+  const commentCache = {}; // cache loaded comments per record
+
+  window.toggleExpand = async (id) => {
+    const row = document.getElementById('er_' + id);
+    if (!row) return;
+    const isOpen = row.style.display !== 'none';
+    // close all other expanded rows
+    document.querySelectorAll('.expand-row').forEach(r => r.style.display = 'none');
+    document.querySelectorAll('.data-row').forEach(r => r.classList.remove('row-expanded'));
+    if (isOpen) return; // was open, just close
+    row.style.display = 'table-row';
+    document.querySelector(`tr[data-rid="${id}"]`)?.classList.add('row-expanded');
+    await loadComments(id);
+  };
+
+  window.toggleComment = async (id) => {
+    await toggleExpand(id);
+  };
+
+  async function loadComments(id) {
+    const snap = await getDocs(query(collection(db, 'worklogs', id, 'comments'), orderBy('createdAt', 'asc')));
+    const comments = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    renderComments(id, comments);
+  }
+
+  function renderComments(id, comments) {
+    const el = document.getElementById('cl_' + id);
+    const cc = document.getElementById('cc_' + id);
+    if (cc) cc.textContent = comments.length || 0;
+    if (!el) return;
+    const replyBtn = `<button class="btn-reply-sm" onclick="toggleReplyBox('${id}')">✏️ 回复</button>`;
+    if (!comments.length) {
+      el.innerHTML = `<div class="no-comment">还没有评论，来第一个提问吧 &nbsp;${replyBtn}</div>`;
+      return;
+    }
+    el.innerHTML = comments.map((c, i) => {
+      const t = c.createdAt ? new Date(c.createdAt.seconds*1000).toLocaleDateString('zh-CN',{month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'}) : '';
+      const isMe = c.authorId === currentUser?.uid;
+      const isLast = i === comments.length - 1;
+      return `<div class="comment-item">
+        <div class="comment-avatar-sm">${(c.authorName||'?')[0].toUpperCase()}</div>
+        <div class="comment-body">
+          <div class="comment-meta">
+            <span class="comment-name">${c.authorName||''}</span>
+            <span class="comment-time">${t}</span>
+            ${isMe ? `<button class="btn-del-comment" onclick="delComment('${id}','${c.id}')">删除</button>` : ''}
+            ${isLast ? replyBtn : ''}
+          </div>
+          <div class="comment-text">${c.text}</div>
+        </div>
+      </div>`;
+    }).join('');
+  }
+
+  window.toggleReplyBox = (id) => {
+    const box = document.getElementById('cbox_' + id);
+    const btn = document.getElementById('rb_' + id);
+    if (!box) return;
+    const isOpen = box.style.display !== 'none';
+    box.style.display = isOpen ? 'none' : 'flex';
+    if (!isOpen) {
+      btn.style.display = 'none';
+      setTimeout(() => document.getElementById('ci_' + id)?.focus(), 30);
+    } else {
+      btn.style.display = 'inline-flex';
+    }
+  };
+
+  window.submitComment = async (id) => {
+    const inp = document.getElementById('ci_' + id);
+    const text = inp?.value.trim();
+    if (!text) return;
+    inp.value = '';
+    await addDoc(collection(db, 'worklogs', id, 'comments'), {
+      text,
+      authorId: currentUser.uid,
+      authorName: currentUser.displayName || currentUser.email.split('@')[0],
+      createdAt: serverTimestamp()
+    });
+
+    // 发飞书群通知
+    const record = allRecords.find(r => r.id === id);
+    const commenterName = currentUser.displayName || currentUser.email.split('@')[0];
+    // 不通知自己评论自己的记录
+    if (record && record.authorId !== currentUser.uid) {
+      try {
+        await fetch('https://open.feishu.cn/open-apis/bot/v2/hook/5741cf98-9a86-4754-a5bd-8109a2cacca4', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            msg_type: 'interactive',
+            card: {
+              header: {
+                title: { tag: 'plain_text', content: '💬 工作记录新回复' },
+                template: 'green'
+              },
+              elements: [{
+                tag: 'div',
+                text: {
+                  tag: 'lark_md',
+                  content: `**${commenterName}** 回复了 **${record.submitter||''}** 的记录（${record.date||''}）
+
+> ${text}`
+                }
+              }, {
+                tag: 'action',
+                actions: [{
+                  tag: 'button',
+                  text: { tag: 'plain_text', content: '👉 查看记录' },
+                  type: 'primary',
+                  url: 'https://ornate-sable-95522e.netlify.app'
+                }]
+              }]
+            }
+          })
+        });
+      } catch(e) { console.log('飞书通知发送失败', e); }
+    }
+
+    // hide input box after sending
+    const box = document.getElementById('cbox_' + id);
+    const btn = document.getElementById('rb_' + id);
+    if (box) box.style.display = 'none';
+    if (btn) btn.style.display = 'inline-flex';
+    await loadComments(id);
+    await checkNotifications();
+  };
+
+  window.delComment = async (entryId, commentId) => {
+    if (!confirm('删除这条评论？')) return;
+    await deleteDoc(doc(db, 'worklogs', entryId, 'comments', commentId));
+    await loadComments(entryId);
+  };
+
+  // Load comment counts on render
+  async function loadAllCommentCounts(list) {
+    for (const r of list) {
+      try {
+        const snap = await getDocs(collection(db, 'worklogs', r.id, 'comments'));
+        const cc = document.getElementById('cc_' + r.id);
+        if (cc) cc.textContent = snap.size;
+      } catch(e) {}
+    }
+  }
+
+
+  // ── Notifications ─────────────────────────────────────────────
+  const NOTIF_KEY = () => 'notif_seen_' + currentUser?.uid;
+
+  async function checkNotifications() {
+    if (!currentUser) return;
+    const seenRaw = localStorage.getItem(NOTIF_KEY()) || '{}';
+    const seen = JSON.parse(seenRaw);
+    const notifs = [];
+
+    for (const r of allRecords) {
+      try {
+        const snap = await getDocs(query(collection(db, 'worklogs', r.id, 'comments'), orderBy('createdAt', 'asc')));
+        const comments = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+        // only notify owner of the record
+        if (r.authorId !== currentUser.uid) continue;
+        for (const c of comments) {
+          if (c.authorId === currentUser.uid) continue; // skip own comments
+          const key = r.id + '_' + c.id;
+          notifs.push({ key, rid: r.id, comment: c, record: r, isNew: !seen[key] });
+        }
+      } catch(e) {}
+    }
+
+    const newCount = notifs.filter(n => n.isNew).length;
+    const btn = document.getElementById('notifBtn');
+    const badge = document.getElementById('notifCount');
+    if (notifs.length > 0) {
+      btn.style.display = 'inline-flex';
+      badge.textContent = newCount;
+      badge.style.display = newCount > 0 ? 'inline' : 'none';
+    }
+
+    // render notif list
+    const list = document.getElementById('notifList');
+    if (!notifs.length) {
+      list.innerHTML = '<div class="notif-empty">暂无新回复</div>';
+      return;
+    }
+    list.innerHTML = notifs.reverse().map(n => {
+      const t = n.comment.createdAt ? new Date(n.comment.createdAt.seconds*1000).toLocaleDateString('zh-CN',{month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'}) : '';
+      return `<div class="notif-item ${n.isNew?'unread':''}" onclick="goToNotif('${n.rid}','${n.key}')">
+        <div class="notif-who"><span>${n.comment.authorName||''}</span> 回复了你的记录「${n.record.date||''}」</div>
+        <div class="notif-content">${n.comment.text}</div>
+        <div class="notif-time">${t}</div>
+      </div>`;
+    }).join('');
+
+    window._notifs = notifs;
+  }
+
+  window.toggleNotifPanel = () => {
+    const panel = document.getElementById('notifPanel');
+    const isOpen = panel.style.display !== 'none';
+    panel.style.display = isOpen ? 'none' : 'block';
+    if (!isOpen) {
+      // mark all as seen
+      const seen = JSON.parse(localStorage.getItem(NOTIF_KEY()) || '{}');
+      (window._notifs||[]).forEach(n => seen[n.key] = true);
+      localStorage.setItem(NOTIF_KEY(), JSON.stringify(seen));
+      document.getElementById('notifCount').style.display = 'none';
+      // re-render without unread style
+      document.querySelectorAll('.notif-item').forEach(el => el.classList.remove('unread'));
+    }
+  };
+
+  window.goToNotif = async (rid, key) => {
+    document.getElementById('notifPanel').style.display = 'none';
+    await toggleExpand(rid);
+    // scroll to the record
+    const row = document.querySelector(`tr[data-rid="${rid}"]`);
+    if (row) row.scrollIntoView({ behavior:'smooth', block:'center' });
+  };
+
+  // close panel when clicking outside
+  document.addEventListener('click', e => {
+    const panel = document.getElementById('notifPanel');
+    const btn = document.getElementById('notifBtn');
+    if (panel && !panel.contains(e.target) && btn && !btn.contains(e.target)) {
+      panel.style.display = 'none';
+    }
+  });
+
+  window.addNewRow = () => {
+    if (newRowActive) { document.getElementById('nr_done')?.focus(); return; }
+    newRowActive = true;
+    renderTable();
+  };
+
+  window.saveNewRow = async () => {
+    const date      = document.getElementById('nr_date')?.value || '';
+    const done      = document.getElementById('nr_done')?.value.trim() || '';
+    const plan      = document.getElementById('nr_plan')?.value.trim() || '';
+    const problem   = document.getElementById('nr_problem')?.value.trim() || '';
+    const thinking  = document.getElementById('nr_thinking')?.value.trim() || '';
+    const important = document.getElementById('nr_important')?.value.trim() || '';
+    const note      = '';
+    if (!date) { showToast('请选择日期'); return; }
+    if (!done && !plan) { showToast('请至少填写今日完成或明日计划'); return; }
+    try {
+      await addDoc(collection(db, 'worklogs'), {
+        date, done, plan, problem, thinking, important,
+        submitter: currentUser.displayName || currentUser.email.split('@')[0],
+        authorId: currentUser.uid,
+        createdAt: serverTimestamp()
+      });
+      newRowActive = false;
+      showToast('提交成功 ✓');
+    } catch(e) { showToast('提交失败：' + e.message); }
+  };
+
+  window.cancelNewRow = () => { newRowActive = false; renderTable(); };
+
+  window.delRecord = async (id) => {
+    if (!confirm('确定删除这条记录？')) return;
+    await deleteDoc(doc(db, 'worklogs', id));
+    showToast('已删除');
+  };
+
+  window.showToast = (msg) => {
+    const t = document.getElementById('toast');
+    t.textContent = msg; t.classList.add('show');
+    clearTimeout(window._tt); window._tt = setTimeout(() => t.classList.remove('show'), 2200);
+  };
+</script>
+
+<style>
+:root {
+  --white:#fff; --border:#e0e4eb; --text:#1a2030;
+  --muted:#8a94a6; --accent:#2f6be8;
+  --row-sel:#ddeeff;   /* row selected: light blue */
+  --cell-edit:#ffffff; /* editing cell: white */
+  --red:#e84040; --header-bg:#f4f6fa;
+  --row-h:36px;
+}
+* { margin:0; padding:0; box-sizing:border-box; }
+body { background:#f0f3f7; color:var(--text); font-family:'Noto Sans SC',sans-serif; font-size:13px; min-height:100vh; }
+
+/* Auth */
+#loadingScreen { display:flex; align-items:center; justify-content:center; min-height:100vh; background:linear-gradient(135deg,#e4ebf8,#f0f3f7); flex-direction:column; gap:14px; }
+.loading-logo { font-size:1.2rem; font-weight:700; color:var(--accent); letter-spacing:.05em; }
+.loading-spinner { width:28px; height:28px; border:3px solid var(--border); border-top-color:var(--accent); border-radius:50%; animation:spin .7s linear infinite; }
+@keyframes spin { to { transform:rotate(360deg); } }
+#authScreen { display:none; align-items:center; justify-content:center; min-height:100vh; background:linear-gradient(135deg,#e4ebf8,#f0f3f7); }
+.auth-card { background:var(--white); border-radius:14px; padding:36px 32px; width:100%; max-width:360px; box-shadow:0 4px 20px rgba(0,0,0,.09); }
+.auth-logo { font-size:1.2rem; font-weight:700; color:var(--accent); text-align:center; margin-bottom:4px; }
+.auth-sub { font-size:.78rem; color:var(--muted); text-align:center; margin-bottom:22px; }
+.auth-tabs { display:flex; background:#f0f3f7; border-radius:7px; padding:3px; margin-bottom:18px; }
+.auth-tab { flex:1; padding:7px; text-align:center; border-radius:5px; cursor:pointer; font-size:.82rem; color:var(--muted); transition:all .15s; }
+.auth-tab.active { background:var(--white); color:var(--text); font-weight:500; box-shadow:0 1px 4px rgba(0,0,0,.07); }
+.auth-form { display:none; flex-direction:column; gap:11px; }
+.auth-form.active { display:flex; }
+.field { display:flex; flex-direction:column; gap:4px; }
+.field label { font-size:.72rem; color:var(--muted); font-weight:500; }
+.field input { border:1px solid var(--border); border-radius:7px; padding:9px 11px; font-size:.86rem; font-family:'Noto Sans SC',sans-serif; outline:none; transition:border-color .15s; }
+.field input:focus { border-color:var(--accent); }
+.auth-error { color:var(--red); font-size:.76rem; text-align:center; min-height:15px; }
+.btn-auth { background:var(--accent); border:none; border-radius:7px; padding:11px; color:white; font-size:.86rem; font-family:'Noto Sans SC',sans-serif; font-weight:500; cursor:pointer; }
+.btn-auth:hover { opacity:.88; }
+
+/* App */
+#appScreen { display:none; }
+.topbar { background:var(--white); border-bottom:1px solid var(--border); padding:0 20px; height:48px; display:flex; align-items:center; gap:12px; position:sticky; top:0; z-index:50; box-shadow:0 1px 3px rgba(0,0,0,.04); }
+.topbar-title { font-size:.95rem; font-weight:700; color:var(--text); flex:1; }
+.topbar-user { font-size:.78rem; color:var(--muted); }
+.btn-logout { background:none; border:1px solid var(--border); border-radius:5px; padding:4px 11px; font-size:.75rem; color:var(--muted); cursor:pointer; font-family:'Noto Sans SC',sans-serif; }
+.toolbar { padding:9px 20px; display:flex; align-items:center; gap:8px; flex-wrap:wrap; background:var(--white); border-bottom:1px solid var(--border); }
+.filter-label { font-size:.75rem; color:var(--muted); white-space:nowrap; }
+.filter-input { border:1px solid var(--border); border-radius:5px; padding:5px 9px; font-size:.78rem; font-family:'Noto Sans SC',sans-serif; outline:none; width:120px; }
+.filter-select { border:1px solid var(--border); border-radius:5px; padding:5px 9px; font-size:.78rem; font-family:'Noto Sans SC',sans-serif; outline:none; width:180px; background:white; cursor:pointer; color:var(--text); }
+.filter-select:focus { border-color:var(--accent); }
+.filter-input:focus { border-color:var(--accent); }
+.btn-add { background:var(--accent); border:none; border-radius:6px; padding:7px 16px; color:white; font-size:.8rem; font-family:'Noto Sans SC',sans-serif; font-weight:500; cursor:pointer; margin-left:auto; }
+.btn-add:hover { opacity:.88; }
+
+/* Table */
+.table-wrap { overflow-x:auto; padding:14px 20px 60px; }
+table { width:100%; border-collapse:collapse; background:var(--white); border-radius:8px; overflow:hidden; box-shadow:0 1px 5px rgba(0,0,0,.06); min-width:1100px; }
+thead tr { background:var(--header-bg); }
+th { padding:9px 12px; text-align:left; font-size:.73rem; font-weight:600; color:var(--muted); border-bottom:1px solid var(--border); white-space:nowrap; }
+
+/* ALL rows: white by default, no zebra */
+tbody tr { border-bottom:1px solid var(--border); height:var(--row-h); background:var(--white); cursor:default; }
+tbody tr:last-child { border-bottom:none; }
+
+/* Selected row: light blue, but editing cell stays white */
+tbody tr.row-selected { background:var(--row-sel) !important; }
+
+.empty-msg { text-align:center; padding:50px; color:var(--muted); font-size:.86rem; }
+
+/* Cells — fixed height, single line, no wrapping */
+.td-date {
+  padding:0 12px; height:var(--row-h);
+  font-size:.8rem; color:var(--accent); font-weight:600;
+  white-space:nowrap; min-width:95px; max-width:110px; overflow:hidden;
+}
+.td-cell {
+  padding:0 12px; height:var(--row-h);
+  font-size:.8rem; color:var(--text);
+  min-width:140px; max-width:210px;
+  overflow:hidden; white-space:nowrap; text-overflow:ellipsis;
+}
+.td-sub  { padding:0 12px; height:var(--row-h); font-size:.76rem; color:var(--muted); white-space:nowrap; }
+.td-act  { padding:0 10px; height:var(--row-h); white-space:nowrap; }
+
+/* Editable cells: show cell cursor */
+td.ed { cursor:cell; }
+
+/* Active edit cell: white background + blue outline, everything else unchanged */
+td.active-cell {
+  padding: 0 !important;
+  background: var(--cell-edit) !important;  /* white, even inside blue row */
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+/* Ghost input: invisible, just text */
+.ghost-input {
+  display:block;
+  width:100%; height:var(--row-h);
+  padding:0 12px;
+  border:none; outline:none;
+  background:transparent;
+  font-size:.8rem; font-family:'Noto Sans SC',sans-serif;
+  color:var(--text);
+}
+
+/* New row */
+.new-row { background:#f0f7ff !important; }
+.new-row td { border-top:1px solid #aac8f0; border-bottom:1px solid #aac8f0; height:var(--row-h); }
+.nc { padding:0 4px; }
+.nr-inp {
+  display:block; width:100%; height:var(--row-h);
+  border:none; border-bottom:1px solid transparent;
+  padding:0 8px;
+  font-size:.8rem; font-family:'Noto Sans SC',sans-serif;
+  outline:none; background:transparent; color:var(--text);
+}
+.nr-inp:focus { border-bottom-color:var(--accent); }
+.nr-inp::placeholder { color:#bcc4d0; }
+
+.btn-sv { background:var(--accent); border:none; border-radius:3px; padding:3px 9px; color:white; font-size:.74rem; cursor:pointer; margin-right:3px; }
+.btn-cx { background:none; border:1px solid var(--border); border-radius:3px; padding:2px 8px; color:var(--muted); font-size:.74rem; cursor:pointer; }
+.btn-del { background:none; border:none; font-size:.74rem; color:var(--red); cursor:pointer; font-family:'Noto Sans SC',sans-serif; opacity:.7; }
+.btn-del:hover { opacity:1; }
+
+
+
+
+/* Notifications */
+.btn-notif { background:none; border:1px solid var(--border); border-radius:6px; padding:4px 11px; font-size:.78rem; color:var(--text); cursor:pointer; font-family:'Noto Sans SC',sans-serif; position:relative; }
+.btn-notif:hover { border-color:var(--accent); color:var(--accent); }
+.notif-badge { background:var(--red); color:white; border-radius:10px; padding:1px 6px; font-size:.68rem; font-weight:700; margin-left:3px; }
+.notif-panel { position:fixed; top:54px; right:20px; width:320px; background:white; border:1px solid var(--border); border-radius:10px; box-shadow:0 4px 20px rgba(0,0,0,.12); z-index:200; }
+.notif-header { display:flex; justify-content:space-between; align-items:center; padding:12px 16px; border-bottom:1px solid var(--border); font-size:.85rem; font-weight:600; }
+.notif-close { background:none; border:none; font-size:1.1rem; color:var(--muted); cursor:pointer; }
+.notif-list { max-height:340px; overflow-y:auto; }
+.notif-item { padding:12px 16px; border-bottom:1px solid var(--border); cursor:pointer; transition:background .15s; }
+.notif-item:last-child { border-bottom:none; }
+.notif-item:hover { background:var(--accent-light); }
+.notif-item.unread { background:#fff8f0; }
+.notif-item.unread:hover { background:#ffeedd; }
+.notif-who { font-size:.8rem; font-weight:600; color:var(--text); margin-bottom:3px; }
+.notif-who span { color:var(--accent); }
+.notif-content { font-size:.78rem; color:var(--muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.notif-time { font-size:.7rem; color:#bbb; margin-top:3px; }
+.notif-empty { padding:24px 16px; text-align:center; color:var(--muted); font-size:.82rem; }
+
+/* Expand row */
+.data-row { cursor:pointer; }
+.data-row:hover { background:var(--accent-light) !important; }
+.data-row.row-expanded { background:var(--accent-light) !important; }
+.expand-row { background:#f7faff !important; }
+.expand-panel { padding:16px 24px 18px 24px !important; border-top:2px solid var(--accent); }
+.expand-fields { display:flex; flex-wrap:wrap; gap:12px 24px; margin-bottom:14px; }
+.ef-item { display:flex; flex-direction:column; gap:3px; min-width:160px; max-width:320px; }
+.ef-label { font-size:.7rem; font-weight:600; color:var(--muted); letter-spacing:.04em; }
+.ef-val { font-size:.84rem; color:var(--text); line-height:1.6; white-space:pre-wrap; }
+.expand-divider { height:1px; background:var(--border); margin-bottom:14px; }
+
+/* Comments */
+.btn-comment { background:none; border:none; font-size:.74rem; color:var(--accent); cursor:pointer; font-family:'Noto Sans SC',sans-serif; margin-right:4px; opacity:.8; }
+.btn-comment:hover { opacity:1; }
+.comment-row { background:#fafbfd !important; }
+.comment-panel { padding:14px 20px 16px 60px !important; border-top:1px dashed var(--border); }
+.comment-list { display:flex; flex-direction:column; gap:10px; margin-bottom:12px; }
+.no-comment { font-size:.78rem; color:var(--muted); padding:6px 0; }
+.comment-item { display:flex; gap:9px; align-items:flex-start; }
+.comment-avatar-sm { width:26px; height:26px; border-radius:50%; background:linear-gradient(135deg,#6ea8fe,#a78bfa); display:flex; align-items:center; justify-content:center; font-size:.7rem; font-weight:700; color:white; flex-shrink:0; }
+.comment-body { flex:1; }
+.comment-meta { display:flex; align-items:center; gap:8px; margin-bottom:3px; }
+.comment-name { font-size:.78rem; font-weight:600; color:var(--text); }
+.comment-time { font-size:.7rem; color:var(--muted); }
+.btn-del-comment { background:none; border:none; font-size:.7rem; color:var(--red); cursor:pointer; opacity:.6; font-family:'Noto Sans SC',sans-serif; }
+.btn-del-comment:hover { opacity:1; }
+.comment-text { font-size:.82rem; color:var(--text); line-height:1.6; }
+.comment-header { display:flex; align-items:flex-start; justify-content:space-between; gap:12px; }
+.comment-header .comment-list { flex:1; }
+.btn-reply { display:inline-flex; align-items:center; gap:4px; background:none; border:1px solid var(--border); border-radius:6px; padding:4px 10px; font-size:.74rem; color:var(--muted); cursor:pointer; font-family:'Noto Sans SC',sans-serif; white-space:nowrap; flex-shrink:0; transition:all .15s; }
+.btn-reply:hover { color:var(--accent); border-color:var(--accent); }
+.btn-reply-inline { background:none; border:none; font-size:.74rem; color:var(--accent); cursor:pointer; font-family:'Noto Sans SC',sans-serif; opacity:.8; margin-right:2px; }
+.btn-reply-inline:hover { opacity:1; text-decoration:underline; }
+.btn-reply-sm { background:none; border:none; font-size:.72rem; color:var(--accent); cursor:pointer; font-family:'Noto Sans SC',sans-serif; opacity:.75; margin-left:4px; }
+.btn-reply-sm:hover { opacity:1; text-decoration:underline; }
+.comment-cancel { background:none; border:1px solid var(--border); border-radius:6px; padding:7px 12px; color:var(--muted); font-size:.78rem; cursor:pointer; font-family:'Noto Sans SC',sans-serif; }
+.comment-input-row { display:flex; align-items:center; gap:8px; padding-top:10px; border-top:1px solid var(--border); }
+.comment-avatar { width:26px; height:26px; border-radius:50%; background:linear-gradient(135deg,var(--accent),#a78bfa); display:flex; align-items:center; justify-content:center; font-size:.7rem; font-weight:700; color:white; flex-shrink:0; }
+.comment-inp { flex:1; border:1px solid var(--border); border-radius:6px; padding:7px 10px; font-size:.82rem; font-family:'Noto Sans SC',sans-serif; outline:none; }
+.comment-inp:focus { border-color:var(--accent); }
+.comment-send { background:var(--accent); border:none; border-radius:6px; padding:7px 14px; color:white; font-size:.78rem; cursor:pointer; font-family:'Noto Sans SC',sans-serif; }
+.comment-send:hover { opacity:.88; }
+
+.toast { position:fixed; bottom:24px; left:50%; transform:translateX(-50%) translateY(14px); background:#1a2030; color:white; padding:8px 20px; border-radius:18px; font-size:.8rem; opacity:0; transition:all .25s; z-index:999; white-space:nowrap; }
+.toast.show { opacity:1; transform:translateX(-50%) translateY(0); }
+</style>
+</head>
+<body>
+
+<div id="loadingScreen">
+  <div class="loading-logo">📋 工作记录总结</div>
+  <div class="loading-spinner"></div>
+</div>
+
+<div id="authScreen">
+  <div class="auth-card">
+    <div class="auth-logo">📋 工作记录总结</div>
+    <div class="auth-sub">团队每日工作记录系统</div>
+    <div class="auth-tabs">
+      <div class="auth-tab active" onclick="switchAuthTab('login')">登录</div>
+      <div class="auth-tab" onclick="switchAuthTab('register')">注册</div>
+    </div>
+    <div class="auth-form active" id="loginForm">
+      <div class="field"><label>邮箱</label><input type="email" id="loginEmail" placeholder="your@email.com" onkeydown="if(event.key==='Enter')doLogin()"/></div>
+      <div class="field"><label>密码</label><input type="password" id="loginPass" placeholder="••••••" onkeydown="if(event.key==='Enter')doLogin()"/></div>
+      <div class="auth-error" id="authError"></div>
+      <button class="btn-auth" onclick="doLogin()">登录</button>
+    </div>
+    <div class="auth-form" id="registerForm">
+      <div class="field"><label>姓名</label><input type="text" id="regName" placeholder="你的姓名"/></div>
+      <div class="field"><label>邮箱</label><input type="email" id="regEmail" placeholder="your@email.com"/></div>
+      <div class="field"><label>密码（至少6位）</label><input type="password" id="regPass" placeholder="••••••"/></div>
+      <div class="field"><label>邀请码</label><input type="text" id="regInvite" placeholder="请输入团队邀请码"/></div>
+      <div class="auth-error" id="regError"></div>
+      <button class="btn-auth" onclick="doRegister()">注册</button>
+    </div>
+  </div>
+</div>
+
+<div id="appScreen">
+  <div class="topbar">
+    <div class="topbar-title">📋 工作记录总结</div>
+    <div class="topbar-user" id="topUserName"></div>
+    <button class="btn-notif" id="notifBtn" onclick="toggleNotifPanel()" style="display:none">🔔 <span class="notif-badge" id="notifCount">0</span></button>
+    <button class="btn-logout" onclick="doLogout()">退出</button>
+  </div>
+  <div class="toolbar">
+    <span class="filter-label">筛选成员：</span>
+    <select class="filter-select" id="filterUser" onchange="renderTable()"><option value="">全部成员</option></select>
+    <span class="filter-label">日期从：</span>
+    <input class="filter-input" type="date" id="filterDateFrom" onchange="renderTable()"/>
+    <span class="filter-label">到：</span>
+    <input class="filter-input" type="date" id="filterDateTo" onchange="renderTable()"/>
+    <button class="btn-add" onclick="addNewRow()">＋ 新增记录</button>
+  </div>
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>日期</th><th>今日完成</th><th>明日计划</th><th>遇到问题</th>
+          <th>感悟思考</th><th>重要备注</th><th>提交者</th><th>操作</th>
+        </tr>
+      </thead>
+      <tbody id="tableBody">
+        <tr><td colspan="9" class="empty-msg">加载中…</td></tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<div class="notif-panel" id="notifPanel" style="display:none">
+  <div class="notif-header">
+    <span>新回复通知</span>
+    <button class="notif-close" onclick="toggleNotifPanel()">×</button>
+  </div>
+  <div class="notif-list" id="notifList"></div>
+</div>
+<div class="toast" id="toast"></div>
+</body>
+</html>
