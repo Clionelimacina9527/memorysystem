@@ -223,6 +223,17 @@ var index_default = {
       await env.DB.prepare("DELETE FROM comments WHERE id=?").bind(cid).run();
       return json({ ok: true });
     }
+    if (path === "/api/change-password" && method === "POST") {
+      const { oldPassword, newPassword } = await req.json();
+      if (!oldPassword || !newPassword) return json({ error: "请填写完整" }, 400);
+      if (newPassword.length < 6) return json({ error: "新密码至少6位" }, 400);
+      const oldHash = await hashPassword(oldPassword);
+      const dbUser = await env.DB.prepare("SELECT * FROM users WHERE id=? AND password=?").bind(user.id, oldHash).first();
+      if (!dbUser) return json({ error: "旧密码不正确" }, 400);
+      const newHash = await hashPassword(newPassword);
+      await env.DB.prepare("UPDATE users SET password=? WHERE id=?").bind(newHash, user.id).run();
+      return json({ ok: true });
+      }
     if (path === "/api/comment-counts" && method === "GET") {
       const rows = await env.DB.prepare(
         "SELECT worklog_id, COUNT(*) as cnt FROM comments GROUP BY worklog_id"
@@ -380,6 +391,7 @@ td.active-cell{padding:0!important;background:#fff!important;outline:2px solid v
     <div class="topbar-title">\u{1F9E0} \u4E2A\u4EBA\u6570\u5B57\u8BB0\u5FC6\u7CFB\u7EDF</div>
     <div class="topbar-user" id="topUser"></div>
     <button class="btn-notif" id="notifBtn" onclick="toggleNotif()">\u{1F514} <span class="notif-badge" id="notifCount">0</span></button>
+    <button class="btn-logout" onclick="showChangePwd()">\u6539\u5BC6\u7801</button>
     <button class="btn-logout" onclick="doLogout()">\u9000\u51FA</button>
   </div>
   <div class="toolbar">
@@ -401,6 +413,19 @@ td.active-cell{padding:0!important;background:#fff!important;outline:2px solid v
 <div class="notif-panel" id="notifPanel">
   <div class="notif-header"><span>\u65B0\u56DE\u590D\u901A\u77E5</span><button class="notif-close" onclick="toggleNotif()">\xD7</button></div>
   <div class="notif-list" id="notifList"></div>
+</div>
+<div id="pwdModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.4);z-index:300;align-items:center;justify-content:center;">
+  <div style="background:white;border-radius:14px;padding:28px 28px 24px;width:100%;max-width:320px;box-shadow:0 4px 24px rgba(0,0,0,.15);">
+    <div style="font-size:.95rem;font-weight:700;color:#1a2030;margin-bottom:18px;">\u4FEE\u6539\u5BC6\u7801</div>
+    <div class="field" style="margin-bottom:10px;"><label>\u65E7\u5BC6\u7801</label><input type="password" id="pwd_old" placeholder="\u8F93\u5165\u65E7\u5BC6\u7801"/></div>
+    <div class="field" style="margin-bottom:10px;"><label>\u65B0\u5BC6\u7801</label><input type="password" id="pwd_new" placeholder="\u81F3\u5C116\u4F4D"/></div>
+    <div class="field" style="margin-bottom:14px;"><label>\u786E\u8BA4\u65B0\u5BC6\u7801</label><input type="password" id="pwd_confirm" placeholder="\u518D\u8F93\u4E00\u6B21"/></div>
+    <div id="pwd_error" style="color:#e84040;font-size:.76rem;min-height:15px;margin-bottom:10px;text-align:center;"></div>
+    <div style="display:flex;gap:8px;">
+      <button class="btn-auth" style="flex:1;" onclick="doChangePwd()">\u786E\u8BA4\u4FEE\u6539</button>
+      <button class="btn-logout" style="flex:1;padding:11px;" onclick="hideChangePwd()">\u53D6\u6D88</button>
+    </div>
+  </div>
 </div>
 <div class="toast" id="toast"></div>
 
@@ -764,6 +789,33 @@ document.addEventListener('click',e=>{
   const btn=document.getElementById('notifBtn');
   if(panel&&!panel.contains(e.target)&&btn&&!btn.contains(e.target)) panel.style.display='none';
 });
+
+function showChangePwd(){
+  document.getElementById('pwd_old').value='';
+  document.getElementById('pwd_new').value='';
+  document.getElementById('pwd_confirm').value='';
+  document.getElementById('pwd_error').textContent='';
+  const m=document.getElementById('pwdModal');
+  m.style.display='flex';
+}
+function hideChangePwd(){
+  document.getElementById('pwdModal').style.display='none';
+}
+async function doChangePwd(){
+  const oldP=document.getElementById('pwd_old').value;
+  const newP=document.getElementById('pwd_new').value;
+  const cfm=document.getElementById('pwd_confirm').value;
+  const errEl=document.getElementById('pwd_error');
+  errEl.textContent='';
+  if(!oldP||!newP||!cfm){errEl.textContent='\u8BF7\u586B\u5199\u6240\u6709\u5B57\u6BB5';return;}
+  if(newP!==cfm){errEl.textContent='\u4E24\u6B21\u65B0\u5BC6\u7801\u4E0D\u4E00\u81F4';return;}
+  if(newP.length<6){errEl.textContent='\u65B0\u5BC6\u7801\u81F3\u5C116\u4F4D';return;}
+  const res=await fetch('/api/change-password',{method:'POST',headers:authHeaders(),body:JSON.stringify({oldPassword:oldP,newPassword:newP})});
+  const data=await res.json();
+  if(!res.ok){errEl.textContent=data.error;return;}
+  hideChangePwd();
+  showToast('\u5BC6\u7801\u4FEE\u6539\u6210\u529F \u2713');
+}
 
 function showToast(msg){
   const t=document.getElementById('toast');
