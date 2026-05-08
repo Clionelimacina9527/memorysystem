@@ -1,0 +1,13 @@
+name = "memorysystem"
+
+main = "index.js"
+
+compatibility_date = "2024-01-01"
+
+[[d1_databases]]
+
+binding = "DB"
+
+database_name = "memory-db"
+
+database_id = "94515cf4-4d04-4e01-abed-7cb646a0ce26"
