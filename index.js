@@ -626,7 +626,7 @@ function getHTML() {
 '        +"<div class=\'comment-list\' id=\'cl_"+r.id+"\'></div>"\n' +
 '        +"<div class=\'comment-input-row\' id=\'cbox_"+r.id+"\' style=\'display:none\'>"\n' +
 '        +"<div class=\'comment-avatar\'>"+(currentUser&&currentUser.name?currentUser.name[0].toUpperCase():"?")+"</div>"\n' +
-'        +"<input class=\'comment-inp\' id=\'ci_"+r.id+"\' placeholder=\'\u5199\u4E0B\u4F60\u7684\u7591\u95EE\u6216\u56DE\u590D\u2026\' onkeydown=\'if(event.key===\"Enter\")submitComment("+r.id+")\'/>\n" +
+'        +"<input class=\'comment-inp\' id=\'ci_"+r.id+"\' placeholder=\'\u5199\u4E0B\u4F60\u7684\u7591\u95EE\u6216\u56DE\u590D\u2026\' onkeydown=\'if(event.key==&quot;Enter&quot;)submitComment("+r.id+")\'/>" +
 '        +"<button class=\'comment-send\' onclick=\'submitComment("+r.id+")\'>&#x53D1;&#x9001;</button>"\n' +
 '        +"<button class=\'btn-cancel-comment\' onclick=\'toggleReplyBox("+r.id+")\'>&#x53D6;&#x6D88;</button>"\n' +
 '        +"</div></td></tr>";\n' +
