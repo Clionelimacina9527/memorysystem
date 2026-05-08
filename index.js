@@ -223,6 +223,21 @@ var index_default = {
       await env.DB.prepare("DELETE FROM comments WHERE id=?").bind(cid).run();
       return json({ ok: true });
     }
+    if (path === "/api/admin/reset-password" && method === "POST") {
+      if (!isAdmin) return json({ error: "无权限" }, 403);
+      const { userId, newPassword } = await req.json();
+      if (!userId || !newPassword) return json({ error: "参数缺失" }, 400);
+      if (newPassword.length < 6) return json({ error: "密码至少6位" }, 400);
+      const newHash = await hashPassword(newPassword);
+      await env.DB.prepare("UPDATE users SET password=? WHERE id=?").bind(newHash, userId).run();
+      return json({ ok: true });
+    }
+    
+    if (path === "/api/admin/users" && method === "GET") {
+      if (!isAdmin) return json({ error: "无权限" }, 403);
+      const rows = await env.DB.prepare("SELECT id, name, email, created_at FROM users").all();
+      return json(rows.results);
+    }
     if (path === "/api/change-password" && method === "POST") {
       const { oldPassword, newPassword } = await req.json();
       if (!oldPassword || !newPassword) return json({ error: "请填写完整" }, 400);
@@ -391,6 +406,7 @@ td.active-cell{padding:0!important;background:#fff!important;outline:2px solid v
     <div class="topbar-title">\u{1F9E0} \u4E2A\u4EBA\u6570\u5B57\u8BB0\u5FC6\u7CFB\u7EDF</div>
     <div class="topbar-user" id="topUser"></div>
     <button class="btn-notif" id="notifBtn" onclick="toggleNotif()">\u{1F514} <span class="notif-badge" id="notifCount">0</span></button>
+    <button class="btn-logout" id="adminBtn" onclick="showAdminPanel()" style="display:none">\u7BA1\u7406</button>
     <button class="btn-logout" onclick="showChangePwd()">\u6539\u5BC6\u7801</button>
     <button class="btn-logout" onclick="doLogout()">\u9000\u51FA</button>
   </div>
@@ -413,6 +429,27 @@ td.active-cell{padding:0!important;background:#fff!important;outline:2px solid v
 <div class="notif-panel" id="notifPanel">
   <div class="notif-header"><span>\u65B0\u56DE\u590D\u901A\u77E5</span><button class="notif-close" onclick="toggleNotif()">\xD7</button></div>
   <div class="notif-list" id="notifList"></div>
+</div>
+<div id="adminModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.4);z-index:300;align-items:center;justify-content:center;">
+  <div style="background:white;border-radius:14px;padding:28px;width:100%;max-width:400px;box-shadow:0 4px 24px rgba(0,0,0,.15);max-height:80vh;overflow-y:auto;">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:18px;">
+      <div style="font-size:.95rem;font-weight:700;color:#1a2030;">\u7528\u6237\u7BA1\u7406</div>
+      <button class="btn-logout" onclick="hideAdminPanel()">\u5173\u95ED</button>
+    </div>
+    <div id="adminUserList"></div>
+  </div>
+</div>
+<div id="resetModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.4);z-index:400;align-items:center;justify-content:center;">
+  <div style="background:white;border-radius:14px;padding:28px;width:100%;max-width:320px;box-shadow:0 4px 24px rgba(0,0,0,.15);">
+    <div style="font-size:.95rem;font-weight:700;color:#1a2030;margin-bottom:18px;">\u91CD\u7F6E\u5BC6\u7801</div>
+    <div id="resetTargetName" style="font-size:.84rem;color:#8a94a6;margin-bottom:12px;"></div>
+    <div class="field" style="margin-bottom:14px;"><label>\u65B0\u5BC6\u7801</label><input type="password" id="reset_new" placeholder="\u81F3\u5C116\u4F4D"/></div>
+    <div id="reset_error" style="color:#e84040;font-size:.76rem;min-height:15px;margin-bottom:10px;text-align:center;"></div>
+    <div style="display:flex;gap:8px;">
+      <button class="btn-auth" style="flex:1;" onclick="doResetPwd()">\u786E\u8BA4\u91CD\u7F6E</button>
+      <button class="btn-logout" style="flex:1;padding:11px;" onclick="hideResetModal()">\u53D6\u6D88</button>
+    </div>
+  </div>
 </div>
 <div id="pwdModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.4);z-index:300;align-items:center;justify-content:center;">
   <div style="background:white;border-radius:14px;padding:28px 28px 24px;width:100%;max-width:320px;box-shadow:0 4px 24px rgba(0,0,0,.15);">
@@ -444,6 +481,7 @@ if (saved) {
   show('appScreen');
   hide('loadingScreen');
   document.getElementById('topUser').textContent = currentUser.name;
+  if(currentUser.email===ADMIN_EMAIL) document.getElementById('adminBtn').style.display='inline-block';
   loadRecords();
 } else {
   hide('loadingScreen');
@@ -474,6 +512,7 @@ async function doLogin(){
   currentUser=data.user;
   hide('authScreen'); show('appScreen');
   document.getElementById('topUser').textContent=currentUser.name;
+  if(currentUser.email===ADMIN_EMAIL) document.getElementById('adminBtn').style.display='inline-block';
   loadRecords();
 }
 
@@ -495,6 +534,7 @@ async function doRegister(){
   currentUser=data.user;
   hide('authScreen'); show('appScreen');
   document.getElementById('topUser').textContent=currentUser.name;
+  if(currentUser.email===ADMIN_EMAIL) document.getElementById('adminBtn').style.display='inline-block';
   loadRecords();
 }
 
@@ -790,6 +830,52 @@ document.addEventListener('click',e=>{
   if(panel&&!panel.contains(e.target)&&btn&&!btn.contains(e.target)) panel.style.display='none';
 });
 
+let resetTargetId = null;
+
+async function showAdminPanel(){
+  document.getElementById('adminModal').style.display='flex';
+  const res = await fetch('/api/admin/users', {headers: authHeaders()});
+  const users = await res.json();
+  document.getElementById('adminUserList').innerHTML = users.map(u => `
+    <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 0;border-bottom:1px solid #e0e4eb;">
+      <div>
+        <div style="font-size:.84rem;font-weight:600;color:#1a2030;">${u.name}</div>
+        <div style="font-size:.75rem;color:#8a94a6;">${u.email}</div>
+      </div>
+      <button class="btn-logout" onclick="showResetModal(${u.id},'${u.name}')">\u91CD\u7F6E\u5BC6\u7801</button>
+    </div>
+  `).join('');
+}
+
+function hideAdminPanel(){
+  document.getElementById('adminModal').style.display='none';
+}
+
+function showResetModal(uid, uname){
+  resetTargetId = uid;
+  document.getElementById('resetTargetName').textContent = '\u4E3A\u300C' + uname + '\u300D\u91CD\u7F6E\u5BC6\u7801';
+  document.getElementById('reset_new').value='';
+  document.getElementById('reset_error').textContent='';
+  document.getElementById('resetModal').style.display='flex';
+}
+
+function hideResetModal(){
+  document.getElementById('resetModal').style.display='none';
+}
+
+async function doResetPwd(){
+  const newP = document.getElementById('reset_new').value;
+  const errEl = document.getElementById('reset_error');
+  errEl.textContent='';
+  if(!newP){errEl.textContent='\u8BF7\u586B\u5199\u65B0\u5BC6\u7801';return;}
+  if(newP.length<6){errEl.textContent='\u5BC6\u7801\u81F3\u5C116\u4F4D';return;}
+  const res = await fetch('/api/admin/reset-password',{method:'POST',headers:authHeaders(),body:JSON.stringify({userId:resetTargetId,newPassword:newP})});
+  const data = await res.json();
+  if(!res.ok){errEl.textContent=data.error;return;}
+  hideResetModal();
+  hideAdminPanel();
+  showToast('\u5BC6\u7801\u5DF2\u91CD\u7F6E \u2713');
+}
 function showChangePwd(){
   document.getElementById('pwd_old').value='';
   document.getElementById('pwd_new').value='';
