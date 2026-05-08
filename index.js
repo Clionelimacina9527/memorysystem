@@ -836,15 +836,15 @@ async function showAdminPanel(){
   document.getElementById('adminModal').style.display='flex';
   const res = await fetch('/api/admin/users', {headers: authHeaders()});
   const users = await res.json();
-  document.getElementById('adminUserList').innerHTML = users.map(u => `
-    <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 0;border-bottom:1px solid #e0e4eb;">
-      <div>
-        <div style="font-size:.84rem;font-weight:600;color:#1a2030;">${u.name}</div>
-        <div style="font-size:.75rem;color:#8a94a6;">${u.email}</div>
-      </div>
-      <button class="btn-logout" onclick="showResetModal(${u.id},'${u.name}')">\u91CD\u7F6E\u5BC6\u7801</button>
-    </div>
-  `).join('');
+  document.getElementById('adminUserList').innerHTML = users.map(u => [
+    '<div style="display:flex;align-items:center;justify-content:space-between;padding:10px 0;border-bottom:1px solid #e0e4eb;">',
+    '<div>',
+    '<div style="font-size:.84rem;font-weight:600;color:#1a2030;">'+u.name+'</div>',
+    '<div style="font-size:.75rem;color:#8a94a6;">'+u.email+'</div>',
+    '</div>',
+    '<button class="btn-logout" onclick="showResetModal('+u.id+',\''+u.name+'\')">\u91CD\u7F6E\u5BC6\u7801</button>',
+    '</div>'
+  ].join('')).join('');
 }
 
 function hideAdminPanel(){
