@@ -6,7 +6,7 @@ var ADMIN_EMAIL = "1065857324@qq.com";
 var INVITE_CODE = "work2026";
 var JWT_SECRET = "memory-system-jwt-secret-2026";
 var FEISHU_HOOK = "https://open.feishu.cn/open-apis/bot/v2/hook/5741cf98-9a86-4754-a5bd-8109a2cacca4";
-var SITE_URL = "https://memorysystem.congwei970225.workers.dev";
+var SITE_URL = "https://memory.mizuflow.net";
 async function signJWT(payload) {
   const header = btoa(unescape(encodeURIComponent(JSON.stringify({ alg: "HS256", typ: "JWT" }))));
   const body = btoa(unescape(encodeURIComponent(JSON.stringify({ ...payload, exp: Date.now() + 7 * 24 * 3600 * 1e3 }))));
