@@ -12,8 +12,4 @@ database_name = "memory-db"
 
 database_id = "94515cf4-4d04-4e01-abed-7cb646a0ce26"
 
-[vars]
-ADMIN_EMAIL = "1065857324@qq.com"
-INVITE_CODE = "cong1997"
-JWT_SECRET = "memory-system-jwt-secret-2026"
-FEISHU_HOOK = "https://open.feishu.cn/open-apis/bot/v2/hook/5741cf98-9a86-4754-a5bd-8109a2cacca4"
+# 所有敏感配置通过 Cloudflare Secrets 管理，不写入此文件
