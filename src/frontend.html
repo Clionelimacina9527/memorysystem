@@ -1,0 +1,1093 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>个人数字记忆系统</title>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@300;400;500;600&display=swap" rel="stylesheet">
+<style>
+:root{--white:#fff;--border:#e0e4eb;--text:#1a2030;--muted:#8a94a6;--accent:#2f6be8;--accent-light:#edf2fd;--red:#e84040;--header-bg:#f4f6fa;--row-sel:#ddeeff;--row-h:36px;}
+*{margin:0;padding:0;box-sizing:border-box;}
+body{background:#f0f3f7;color:var(--text);font-family:'Noto Sans SC',sans-serif;font-size:13px;min-height:100vh;}
+#loadingScreen{display:flex;align-items:center;justify-content:center;min-height:100vh;background:linear-gradient(135deg,#e4ebf8,#f0f3f7);flex-direction:column;gap:14px;}
+.loading-logo{font-size:1.2rem;font-weight:700;color:var(--accent);}
+.loading-spinner{width:28px;height:28px;border:3px solid var(--border);border-top-color:var(--accent);border-radius:50%;animation:spin .7s linear infinite;}
+@keyframes spin{to{transform:rotate(360deg);}}
+#authScreen{display:none;align-items:center;justify-content:center;min-height:100vh;background:linear-gradient(135deg,#e4ebf8,#f0f3f7);}
+.auth-card{background:var(--white);border-radius:14px;padding:36px 32px;width:100%;max-width:360px;box-shadow:0 4px 20px rgba(0,0,0,.09);}
+.auth-logo{font-size:1.2rem;font-weight:700;color:var(--accent);text-align:center;margin-bottom:4px;}
+.auth-sub{font-size:.78rem;color:var(--muted);text-align:center;margin-bottom:22px;}
+.auth-tabs{display:flex;background:#f0f3f7;border-radius:7px;padding:3px;margin-bottom:18px;}
+.auth-tab{flex:1;padding:7px;text-align:center;border-radius:5px;cursor:pointer;font-size:.82rem;color:var(--muted);transition:all .15s;}
+.auth-tab.active{background:var(--white);color:var(--text);font-weight:500;box-shadow:0 1px 4px rgba(0,0,0,.07);}
+.auth-form{display:none;flex-direction:column;gap:11px;}
+.auth-form.active{display:flex;}
+.field{display:flex;flex-direction:column;gap:4px;}
+.field label{font-size:.72rem;color:var(--muted);font-weight:500;}
+.field input{border:1px solid var(--border);border-radius:7px;padding:9px 11px;font-size:.86rem;font-family:'Noto Sans SC',sans-serif;outline:none;transition:border-color .15s;}
+.field input:focus{border-color:var(--accent);}
+.auth-error{color:var(--red);font-size:.76rem;text-align:center;min-height:15px;}
+.btn-auth{background:var(--accent);border:none;border-radius:7px;padding:11px;color:white;font-size:.86rem;font-family:'Noto Sans SC',sans-serif;font-weight:500;cursor:pointer;}
+.btn-auth:hover{opacity:.88;}
+#appScreen{display:none;}
+.topbar{background:var(--white);border-bottom:1px solid var(--border);padding:0 20px;height:48px;display:flex;align-items:center;gap:12px;position:sticky;top:0;z-index:50;box-shadow:0 1px 3px rgba(0,0,0,.04);}
+.topbar-title{font-size:.95rem;font-weight:700;color:var(--text);flex:1;}
+.topbar-user{font-size:.78rem;color:var(--muted);}
+.btn-logout{background:none;border:1px solid var(--border);border-radius:5px;padding:4px 11px;font-size:.75rem;color:var(--muted);cursor:pointer;font-family:'Noto Sans SC',sans-serif;}
+.btn-notif{background:none;border:1px solid var(--border);border-radius:6px;padding:4px 11px;font-size:.78rem;color:var(--text);cursor:pointer;font-family:'Noto Sans SC',sans-serif;display:none;}
+.notif-badge{background:var(--red);color:white;border-radius:10px;padding:1px 6px;font-size:.68rem;font-weight:700;margin-left:3px;}
+.toolbar{padding:9px 20px;display:flex;align-items:center;gap:8px;flex-wrap:wrap;background:var(--white);border-bottom:1px solid var(--border);}
+.filter-label{font-size:.75rem;color:var(--muted);white-space:nowrap;}
+.filter-select{border:1px solid var(--border);border-radius:5px;padding:5px 9px;font-size:.78rem;font-family:'Noto Sans SC',sans-serif;outline:none;width:180px;background:white;cursor:pointer;color:var(--text);}
+.filter-select:focus{border-color:var(--accent);}
+.filter-input{border:1px solid var(--border);border-radius:5px;padding:5px 9px;font-size:.78rem;font-family:'Noto Sans SC',sans-serif;outline:none;width:130px;}
+.filter-input:focus{border-color:var(--accent);}
+.btn-export,.btn-add{background:var(--accent);border:none;border-radius:6px;padding:7px 16px;color:white;font-size:.8rem;font-family:'Noto Sans SC',sans-serif;font-weight:500;cursor:pointer;}
+.btn-add{margin-left:auto;}
+.btn-export:hover,.btn-add:hover{opacity:.88;}
+.btn-export:disabled{opacity:.5;cursor:not-allowed;}
+.table-wrap{overflow-x:auto;padding:14px 20px 0;}
+table{width:100%;border-collapse:collapse;background:var(--white);border-radius:8px;overflow:hidden;box-shadow:0 1px 5px rgba(0,0,0,.06);min-width:1000px;}
+thead tr{background:var(--header-bg);}
+th{padding:9px 12px;text-align:left;font-size:.73rem;font-weight:600;color:var(--muted);border-bottom:1px solid var(--border);white-space:nowrap;}
+.th-select,.td-select{width:36px;min-width:36px;padding:0 8px;text-align:center;}
+tbody tr{border-bottom:1px solid var(--border);height:var(--row-h);background:var(--white);}
+tbody tr:last-child{border-bottom:none;}
+.data-row{cursor:pointer;}
+.data-row:hover{background:var(--accent-light)!important;}
+.data-row.row-expanded{background:var(--accent-light)!important;}
+.expand-row{background:#f7faff!important;}
+.expand-panel{padding:16px 24px 18px!important;border-top:2px solid var(--accent);}
+.expand-fields{display:flex;flex-wrap:wrap;gap:12px 24px;margin-bottom:14px;}
+.ef-item{display:flex;flex-direction:column;gap:3px;min-width:160px;max-width:320px;}
+.ef-label{font-size:.7rem;font-weight:600;color:var(--muted);letter-spacing:.04em;}
+.ef-val{font-size:.84rem;color:var(--text);line-height:1.6;white-space:pre-wrap;}
+.ef-editable{cursor:text;}
+.ef-edit-ta{display:block;width:100%;border:none;outline:2px solid var(--accent);outline-offset:-1px;background:white;font-size:.84rem;color:var(--text);font-family:'Noto Sans SC',sans-serif;line-height:1.6;resize:none;padding:0;white-space:pre-wrap;box-sizing:border-box;}
+.expand-divider{height:1px;background:var(--border);margin-bottom:14px;}
+.td-date{padding:0 12px;height:var(--row-h);font-size:.8rem;color:var(--accent);font-weight:600;white-space:nowrap;min-width:95px;}
+.td-cell{padding:0 12px;height:var(--row-h);font-size:.8rem;color:var(--text);min-width:140px;max-width:200px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;}
+.td-sub{padding:0 12px;height:var(--row-h);font-size:.76rem;color:var(--muted);white-space:nowrap;}
+.td-act{padding:0 10px;height:var(--row-h);white-space:nowrap;}
+td.ed{cursor:cell;}
+td.active-cell{padding:0!important;background:#fff!important;outline:2px solid var(--accent);outline-offset:-2px;}
+.ghost-input{display:block;width:100%;height:var(--row-h);padding:0 12px;border:none;outline:none;background:transparent;font-size:.8rem;font-family:'Noto Sans SC',sans-serif;color:var(--text);}
+textarea.ghost-input{height:80px;resize:none;overflow-y:auto;vertical-align:top;padding:4px 12px;}
+.new-row{background:#f0f7ff!important;}
+.new-row td{border-top:1px solid #aac8f0;border-bottom:1px solid #aac8f0;height:var(--row-h);}
+.nc{padding:0 4px;}
+.nr-inp{display:block;width:100%;height:var(--row-h);border:none;border-bottom:1px solid transparent;padding:0 8px;font-size:.8rem;font-family:'Noto Sans SC',sans-serif;outline:none;background:transparent;color:var(--text);}
+.nr-inp:focus{border-bottom-color:var(--accent);}
+textarea.nr-inp{height:72px;resize:none;padding:6px 8px;line-height:1.5;vertical-align:top;overflow-y:auto;}
+.nr-inp::placeholder{color:#bcc4d0;}
+.btn-sv{background:var(--accent);border:none;border-radius:3px;padding:3px 9px;color:white;font-size:.74rem;cursor:pointer;margin-right:3px;}
+.btn-cx{background:none;border:1px solid var(--border);border-radius:3px;padding:2px 8px;color:var(--muted);font-size:.74rem;cursor:pointer;}
+.btn-del{background:none;border:none;font-size:.74rem;color:var(--red);cursor:pointer;font-family:'Noto Sans SC',sans-serif;opacity:.7;}
+.btn-del:hover{opacity:1;}
+.btn-comment{background:none;border:none;font-size:.74rem;color:var(--accent);cursor:pointer;font-family:'Noto Sans SC',sans-serif;opacity:.8;margin-right:4px;}
+.tag-chip{display:inline-flex;align-items:center;max-width:100%;border:1px solid #b9d2ff;background:#eef5ff;color:#2258c8;border-radius:5px;padding:2px 7px;margin-right:6px;font-size:.72rem;font-family:'Noto Sans SC',sans-serif;cursor:pointer;vertical-align:middle;white-space:nowrap;}
+.tag-chip:hover{background:#dfeeff;}
+.nr-stack{display:flex;flex-direction:column;gap:4px;padding:4px 0;}
+.nr-tag-row{display:flex;gap:4px;}
+.nr-tag{height:24px;border:1px solid var(--border);border-radius:4px;padding:0 7px;font-size:.74rem;font-family:'Noto Sans SC',sans-serif;outline:none;background:white;min-width:0;}
+.nr-tag.name{flex:1;}
+.tag-summary{display:inline-flex;align-items:center;gap:8px;border:1px solid #b9d2ff;background:#eef5ff;color:#2258c8;border-radius:6px;padding:6px 10px;margin-bottom:12px;cursor:pointer;font-size:.8rem;}
+.tag-summary:hover{background:#dfeeff;}
+.tag-modal{max-width:520px;max-height:80vh;overflow-y:auto;}
+.tag-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;}
+.tag-meta{font-size:.78rem;color:var(--muted);margin-bottom:12px;}
+.tag-timeline{display:flex;flex-direction:column;gap:8px;}
+.tag-entry{display:grid;grid-template-columns:86px 1fr;gap:10px;border-top:1px solid var(--border);padding-top:9px;}
+.tag-date{font-size:.78rem;color:var(--accent);font-weight:600;}
+.tag-title{font-size:.82rem;font-weight:600;color:var(--text);margin-bottom:2px;}
+.tag-note{font-size:.78rem;color:var(--muted);line-height:1.5;white-space:pre-wrap;}
+.tag-manage-row{display:flex;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid var(--border);}
+.tag-manage-row input{flex:1;border:1px solid var(--border);border-radius:5px;padding:6px 8px;font-size:.8rem;font-family:'Noto Sans SC',sans-serif;}
+.tag-manage-actions{display:flex;gap:5px;}
+.tag-manage-empty{padding:18px 0;color:var(--muted);font-size:.82rem;text-align:center;}
+.tag-edit-row{display:flex;align-items:center;gap:8px;margin-bottom:12px;}
+.tag-edit-row label{font-size:.74rem;color:var(--muted);font-weight:600;}
+.tag-edit-select{border:1px solid var(--border);border-radius:5px;padding:5px 8px;font-size:.78rem;font-family:'Noto Sans SC',sans-serif;min-width:180px;background:white;color:var(--text);}
+.comment-list{display:flex;flex-direction:column;gap:10px;margin-bottom:8px;}
+.no-comment{font-size:.78rem;color:var(--muted);padding:6px 0;}
+.comment-item{display:flex;gap:9px;align-items:flex-start;}
+.comment-avatar-sm{width:26px;height:26px;border-radius:50%;background:linear-gradient(135deg,#6ea8fe,#a78bfa);display:flex;align-items:center;justify-content:center;font-size:.7rem;font-weight:700;color:white;flex-shrink:0;}
+.comment-body{flex:1;}
+.comment-meta{display:flex;align-items:center;gap:8px;margin-bottom:3px;}
+.comment-name{font-size:.78rem;font-weight:600;color:var(--text);}
+.comment-time{font-size:.7rem;color:var(--muted);}
+.btn-del-comment{background:none;border:none;font-size:.7rem;color:var(--red);cursor:pointer;opacity:.6;font-family:'Noto Sans SC',sans-serif;}
+.btn-reply-sm{background:none;border:none;font-size:.72rem;color:var(--accent);cursor:pointer;font-family:'Noto Sans SC',sans-serif;opacity:.75;margin-left:4px;}
+.comment-text{font-size:.82rem;color:var(--text);line-height:1.6;}
+.comment-input-row{display:flex;align-items:center;gap:8px;padding-top:10px;border-top:1px solid var(--border);}
+.comment-avatar{width:26px;height:26px;border-radius:50%;background:linear-gradient(135deg,var(--accent),#a78bfa);display:flex;align-items:center;justify-content:center;font-size:.7rem;font-weight:700;color:white;flex-shrink:0;}
+.comment-inp{flex:1;border:1px solid var(--border);border-radius:6px;padding:7px 10px;font-size:.82rem;font-family:'Noto Sans SC',sans-serif;outline:none;}
+.comment-inp:focus{border-color:var(--accent);}
+.comment-send{background:var(--accent);border:none;border-radius:6px;padding:7px 14px;color:white;font-size:.78rem;cursor:pointer;font-family:'Noto Sans SC',sans-serif;}
+.btn-cancel-comment{background:none;border:1px solid var(--border);border-radius:6px;padding:7px 12px;color:var(--muted);font-size:.78rem;cursor:pointer;font-family:'Noto Sans SC',sans-serif;}
+.notif-panel{position:fixed;top:54px;right:20px;width:320px;background:white;border:1px solid var(--border);border-radius:10px;box-shadow:0 4px 20px rgba(0,0,0,.12);z-index:200;display:none;}
+.notif-header{display:flex;justify-content:space-between;align-items:center;padding:12px 16px;border-bottom:1px solid var(--border);font-size:.85rem;font-weight:600;}
+.notif-close{background:none;border:none;font-size:1.1rem;color:var(--muted);cursor:pointer;}
+.notif-list{max-height:340px;overflow-y:auto;}
+.notif-item{padding:12px 16px;border-bottom:1px solid var(--border);cursor:pointer;transition:background .15s;}
+.notif-item:last-child{border-bottom:none;}
+.notif-item:hover{background:var(--accent-light);}
+.notif-item.unread{background:#fff8f0;}
+.notif-who{font-size:.8rem;font-weight:600;color:var(--text);margin-bottom:3px;}
+.notif-who span{color:var(--accent);}
+.notif-time{font-size:.7rem;color:#bbb;margin-top:3px;}
+.notif-empty{padding:24px 16px;text-align:center;color:var(--muted);font-size:.82rem;}
+.empty-msg{text-align:center;padding:50px;color:var(--muted);font-size:.86rem;}
+.pagination{display:flex;align-items:center;justify-content:center;gap:8px;padding:10px 20px 18px;background:transparent;}
+.page-btn{border:1px solid var(--border);background:var(--white);border-radius:5px;padding:5px 14px;font-size:.8rem;cursor:pointer;color:var(--text);font-family:'Noto Sans SC',sans-serif;box-shadow:0 1px 3px rgba(0,0,0,.05);}
+.page-btn:hover:not(:disabled){background:var(--accent-light);border-color:var(--accent);}
+.page-btn:disabled{opacity:.4;cursor:not-allowed;}
+.page-info{font-size:.8rem;color:var(--muted);white-space:nowrap;}
+.modal-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.4);z-index:300;align-items:center;justify-content:center;}
+.modal-box{background:white;border-radius:14px;padding:28px;width:100%;max-width:360px;box-shadow:0 4px 24px rgba(0,0,0,.15);}
+.modal-title{font-size:.95rem;font-weight:700;color:#1a2030;margin-bottom:18px;}
+.modal-error{color:#e84040;font-size:.76rem;min-height:15px;margin-bottom:10px;text-align:center;}
+.modal-btns{display:flex;gap:8px;}
+.toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%) translateY(14px);background:#1a2030;color:white;padding:8px 20px;border-radius:18px;font-size:.8rem;opacity:0;transition:all .25s;z-index:999;white-space:nowrap;}
+.toast.show{opacity:1;transform:translateX(-50%) translateY(0);}
+@media(max-width:768px){
+  table{min-width:0;width:100%;}
+  .th-select,.td-select,
+  th:nth-child(4),th:nth-child(5),th:nth-child(6),th:nth-child(7),
+  tbody td:nth-child(4),tbody td:nth-child(5),tbody td:nth-child(6),tbody td:nth-child(7){display:none;}
+  .td-cell{max-width:120px;}
+  .table-wrap{padding:8px 6px 0;overflow-x:hidden;}
+  .topbar{padding:0 10px;gap:6px;}
+  .topbar-title{font-size:.82rem;}
+  .toolbar{padding:7px 10px;gap:6px;}
+  .filter-select{width:120px;}
+  .filter-input{width:90px;}
+  .btn-add{margin-left:0;}
+  .expand-fields{flex-direction:column;}
+  .ef-item{max-width:100%;}
+}
+</style>
+</head>
+<body>
+<div id="loadingScreen"><div class="loading-logo">🧠 个人数字记忆系统</div><div class="loading-spinner"></div></div>
+<div id="authScreen">
+  <div class="auth-card">
+    <div class="auth-logo">🧠 个人数字记忆系统</div>
+    <div class="auth-sub">团队每日记忆记录系统</div>
+    <div class="auth-tabs">
+      <div class="auth-tab active" onclick="switchTab('login')">登录</div>
+      <div class="auth-tab" onclick="switchTab('register')">注册</div>
+    </div>
+    <div class="auth-form active" id="loginForm">
+      <div class="field"><label>邮箱</label><input type="email" id="loginEmail" placeholder="your@email.com" onkeydown="if(event.key==='Enter')doLogin()"/></div>
+      <div class="field"><label>密码</label><input type="password" id="loginPass" placeholder="••••••" onkeydown="if(event.key==='Enter')doLogin()"/></div>
+      <div class="auth-error" id="authError"></div>
+      <button class="btn-auth" onclick="doLogin()">登录</button>
+    </div>
+    <div class="auth-form" id="registerForm">
+      <div class="field"><label>姓名</label><input type="text" id="regName" placeholder="你的姓名"/></div>
+      <div class="field"><label>邮箱</label><input type="email" id="regEmail" placeholder="your@email.com"/></div>
+      <div class="field"><label>密码（至少6位）</label><input type="password" id="regPass" placeholder="••••••"/></div>
+      <div class="field"><label>邀请码</label><input type="text" id="regInvite" placeholder="请输入团队邀请码"/></div>
+      <div class="auth-error" id="regError"></div>
+      <button class="btn-auth" id="regBtn" onclick="doRegister()">注册</button>
+    </div>
+  </div>
+</div>
+<div id="appScreen">
+  <div class="topbar">
+    <div class="topbar-title">🧠 个人数字记忆系统</div>
+    <div class="topbar-user" id="topUser"></div>
+    <button class="btn-notif" id="notifBtn" onclick="toggleNotif()">🔔 <span class="notif-badge" id="notifCount">0</span></button>
+    <button class="btn-logout" id="adminBtn" onclick="showAdminPanel()" style="display:none">管理</button>
+    <button class="btn-logout" onclick="showChangePwd()">改密码</button>
+    <button class="btn-logout" onclick="doLogout()">退出</button>
+  </div>
+  <div class="toolbar">
+    <span class="filter-label">筛选成员：</span>
+    <select class="filter-select" id="filterUser" onchange="onFilterChange()"><option value="">全部成员</option></select>
+    <span class="filter-label">日期从：</span>
+    <input class="filter-input" type="date" id="filterDateFrom" onchange="onFilterChange()"/>
+    <span class="filter-label">到：</span>
+    <input class="filter-input" type="date" id="filterDateTo" onchange="onFilterChange()"/>
+    <span class="filter-label">搜索：</span>
+    <input class="filter-input" type="text" id="filterKeyword" placeholder="关键词…" oninput="onFilterChange(true)"/>
+    <button class="btn-export" id="exportBtn" onclick="exportSelected()">导出</button>
+    <button class="btn-export" onclick="showTagManage()">标签分类</button>
+    <button class="btn-add" onclick="addNewRow()">＋ 新增记录</button>
+  </div>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th class="th-select"><input type="checkbox" id="selectAll"/></th><th>日期</th><th>今日完成</th><th>明日计划</th><th>遇到问题</th><th>感悟思考</th><th>重要备注</th><th>提交者</th><th>操作</th></tr></thead>
+      <tbody id="tableBody"><tr><td colspan="9" class="empty-msg">加载中…</td></tr></tbody>
+    </table>
+  </div>
+  <div class="pagination" id="pagination"></div>
+</div>
+<div class="notif-panel" id="notifPanel">
+  <div class="notif-header"><span>新回复通知</span><button class="notif-close" onclick="toggleNotif()">&times;</button></div>
+  <div class="notif-list" id="notifList"></div>
+</div>
+<div class="modal-overlay" id="tagModal">
+  <div class="modal-box tag-modal">
+    <div class="tag-head"><div class="modal-title" id="tagTitle" style="margin-bottom:0">标签时间树</div><button class="btn-logout" onclick="hideTagModal()">关闭</button></div>
+    <div class="tag-meta" id="tagMeta"></div>
+    <div class="tag-timeline" id="tagTimeline"></div>
+  </div>
+</div>
+<div class="modal-overlay" id="tagManageModal">
+  <div class="modal-box tag-modal">
+    <div class="tag-head"><div class="modal-title" style="margin-bottom:0">标签分类</div><button class="btn-logout" onclick="hideTagManage()">关闭</button></div>
+    <div class="field" style="margin-bottom:12px;"><label>标签名</label><div style="display:flex;gap:8px;"><input id="newTagName" placeholder="标签名"/><button class="btn-auth" style="padding:8px 14px" onclick="addTag()">添加</button></div></div>
+    <div id="tagManageList"></div>
+  </div>
+</div>
+<div class="modal-overlay" id="adminModal">
+  <div class="modal-box" style="max-width:420px;max-height:80vh;overflow-y:auto;">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:18px;">
+      <div class="modal-title" style="margin-bottom:0">用户管理</div>
+      <button class="btn-logout" onclick="hideAdminPanel()">关闭</button>
+    </div>
+    <div id="adminUserList"></div>
+  </div>
+</div>
+<div class="modal-overlay" id="resetModal" style="z-index:400">
+  <div class="modal-box">
+    <div class="modal-title">重置密码</div>
+    <div id="resetTargetName" style="font-size:.84rem;color:#8a94a6;margin-bottom:12px;"></div>
+    <div class="field" style="margin-bottom:14px;"><label>新密码</label><input type="password" id="reset_new" placeholder="至少6位"/></div>
+    <div class="modal-error" id="reset_error"></div>
+    <div class="modal-btns">
+      <button class="btn-auth" style="flex:1" onclick="doResetPwd()">确认重置</button>
+      <button class="btn-logout" style="flex:1;padding:11px" onclick="hideResetModal()">取消</button>
+    </div>
+  </div>
+</div>
+<div class="modal-overlay" id="pwdModal">
+  <div class="modal-box">
+    <div class="modal-title">修改密码</div>
+    <div class="field" style="margin-bottom:10px;"><label>旧密码</label><input type="password" id="pwd_old" placeholder="输入旧密码"/></div>
+    <div class="field" style="margin-bottom:10px;"><label>新密码</label><input type="password" id="pwd_new" placeholder="至少6位"/></div>
+    <div class="field" style="margin-bottom:14px;"><label>确认新密码</label><input type="password" id="pwd_confirm" placeholder="再输一次"/></div>
+    <div class="modal-error" id="pwd_error"></div>
+    <div class="modal-btns">
+      <button class="btn-auth" style="flex:1" onclick="doChangePwd()">确认修改</button>
+      <button class="btn-logout" style="flex:1;padding:11px" onclick="hideChangePwd()">取消</button>
+    </div>
+  </div>
+</div>
+<div class="toast" id="toast"></div>
+<script>
+// ── State ──────────────────────────────────────────────────────────────────
+const PAGE_SIZE = 50;
+let currentUser = null;
+let allRecords = [];
+let newRowActive = false;
+let commentCounts = {};
+let allTags = [];
+let selectedIds = new Set();
+let resetTargetId = null;
+let currentPage = 1;
+let totalRecords = 0;
+let totalPages = 0;
+let currentFilters = { author: '', dateFrom: '', dateTo: '', keyword: '' };
+let debounceTimer = null;
+
+// ── Utilities ──────────────────────────────────────────────────────────────
+var _esc = document.createElement('div');
+function escapeHTML(s) { _esc.textContent = (s || ''); return _esc.innerHTML; }
+function displayText(s) { return (s || '').split(String.fromCharCode(10)).map(l => escapeHTML(l)).join('<br>'); }
+function firstLine(s) { return escapeHTML((s || '').split(String.fromCharCode(10))[0]); }
+
+function show(id) { document.getElementById(id).style.display = id === 'authScreen' ? 'flex' : 'block'; }
+function hide(id) { document.getElementById(id).style.display = 'none'; }
+function showModal(id) { document.getElementById(id).style.display = 'flex'; }
+function hideModal(id) { document.getElementById(id).style.display = 'none'; }
+function showToast(msg) {
+  const t = document.getElementById('toast');
+  t.textContent = msg; t.classList.add('show');
+  clearTimeout(window._tt); window._tt = setTimeout(() => t.classList.remove('show'), 2200);
+}
+function authHeaders() {
+  return { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + localStorage.getItem('memory_token') };
+}
+
+// ── Init ───────────────────────────────────────────────────────────────────
+const saved = localStorage.getItem('memory_user');
+if (saved) {
+  currentUser = JSON.parse(saved);
+  show('appScreen'); hide('loadingScreen');
+  document.getElementById('topUser').textContent = currentUser.name;
+  if (currentUser.isAdmin) document.getElementById('adminBtn').style.display = 'inline-block';
+  loadRecords(1);
+} else {
+  hide('loadingScreen'); show('authScreen');
+}
+
+// ── Auth ───────────────────────────────────────────────────────────────────
+function switchTab(tab) {
+  document.querySelectorAll('.auth-tab').forEach((b, i) => b.classList.toggle('active', (i === 0) === (tab === 'login')));
+  document.getElementById('loginForm').classList.toggle('active', tab === 'login');
+  document.getElementById('registerForm').classList.toggle('active', tab === 'register');
+  document.getElementById('authError').textContent = '';
+}
+
+async function doLogin() {
+  const email = document.getElementById('loginEmail').value.trim();
+  const pass = document.getElementById('loginPass').value;
+  document.getElementById('authError').textContent = '';
+  if (!email || !pass) { document.getElementById('authError').textContent = '请填写邮箱和密码'; return; }
+  const res = await fetch('/api/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email, password: pass }) });
+  const data = await res.json();
+  if (!res.ok) { document.getElementById('authError').textContent = data.error; return; }
+  localStorage.setItem('memory_token', data.token);
+  localStorage.setItem('memory_user', JSON.stringify(data.user));
+  currentUser = data.user;
+  hide('authScreen'); show('appScreen');
+  document.getElementById('topUser').textContent = currentUser.name;
+  if (currentUser.isAdmin) document.getElementById('adminBtn').style.display = 'inline-block';
+  loadRecords(1);
+}
+
+async function doRegister() {
+  const name = document.getElementById('regName').value.trim();
+  const email = document.getElementById('regEmail').value.trim();
+  const pass = document.getElementById('regPass').value;
+  const invite = document.getElementById('regInvite').value.trim();
+  const errEl = document.getElementById('regError');
+  const btn = document.getElementById('regBtn');
+  errEl.textContent = '';
+  if (!name || !email || !pass || !invite) { errEl.textContent = '请填写所有字段'; return; }
+  btn.textContent = '注册中…'; btn.disabled = true;
+  const res = await fetch('/api/register', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name, email, password: pass, inviteCode: invite }) });
+  const data = await res.json();
+  if (!res.ok) { errEl.textContent = data.error; btn.textContent = '注册'; btn.disabled = false; return; }
+  localStorage.setItem('memory_token', data.token);
+  localStorage.setItem('memory_user', JSON.stringify(data.user));
+  currentUser = data.user;
+  hide('authScreen'); show('appScreen');
+  document.getElementById('topUser').textContent = currentUser.name;
+  if (currentUser.isAdmin) document.getElementById('adminBtn').style.display = 'inline-block';
+  loadRecords(1);
+}
+
+function doLogout() {
+  localStorage.removeItem('memory_token');
+  localStorage.removeItem('memory_user');
+  currentUser = null; allRecords = []; selectedIds.clear();
+  hide('appScreen'); show('authScreen');
+}
+
+// ── Data Loading ───────────────────────────────────────────────────────────
+async function loadRecords(page) {
+  page = page || currentPage;
+  currentPage = page;
+  const params = new URLSearchParams({ page, pageSize: PAGE_SIZE });
+  if (currentFilters.author) params.set('author', currentFilters.author);
+  if (currentFilters.dateFrom) params.set('dateFrom', currentFilters.dateFrom);
+  if (currentFilters.dateTo) params.set('dateTo', currentFilters.dateTo);
+  if (currentFilters.keyword) params.set('keyword', currentFilters.keyword);
+
+  const res = await fetch('/api/worklogs?' + params, { headers: authHeaders() });
+  if (!res.ok) { if (res.status === 401) doLogout(); return; }
+  const data = await res.json();
+  allRecords = data.results;
+  totalRecords = data.total;
+  totalPages = Math.ceil(totalRecords / PAGE_SIZE) || 1;
+  selectedIds = new Set(Array.from(selectedIds).filter(id => allRecords.some(r => r.id === id)));
+
+  const cRes = await fetch('/api/comment-counts', { headers: authHeaders() });
+  commentCounts = cRes.ok ? await cRes.json() : {};
+
+  await loadTags();
+  updateMemberDropdown(data.authors || []);
+  renderTable();
+  renderPagination();
+  checkNotifications();
+}
+
+async function loadTags() {
+  const res = await fetch('/api/tags', { headers: authHeaders() });
+  allTags = res.ok ? await res.json() : [];
+  updateTagOptions();
+}
+
+// ── Filters ────────────────────────────────────────────────────────────────
+function readFilters() {
+  currentFilters = {
+    author: document.getElementById('filterUser').value,
+    dateFrom: document.getElementById('filterDateFrom').value,
+    dateTo: document.getElementById('filterDateTo').value,
+    keyword: document.getElementById('filterKeyword').value,
+  };
+}
+
+function onFilterChange(isKeyword) {
+  readFilters();
+  if (isKeyword) {
+    clearTimeout(debounceTimer);
+    debounceTimer = setTimeout(() => loadRecords(1), 350);
+  } else {
+    loadRecords(1);
+  }
+}
+
+// ── Pagination ─────────────────────────────────────────────────────────────
+function renderPagination() {
+  const el = document.getElementById('pagination');
+  if (!el) return;
+  if (totalPages <= 1) { el.innerHTML = ''; return; }
+  const info = '第 ' + currentPage + ' / ' + totalPages + ' 页，共 ' + totalRecords + ' 条';
+  el.innerHTML =
+    '<button class="page-btn" onclick="gotoPage(' + (currentPage - 1) + ')"' + (currentPage <= 1 ? ' disabled' : '') + '>‹ 上一页</button>' +
+    '<span class="page-info">' + info + '</span>' +
+    '<button class="page-btn" onclick="gotoPage(' + (currentPage + 1) + ')"' + (currentPage >= totalPages ? ' disabled' : '') + '>下一页 ›</button>';
+}
+
+function gotoPage(p) {
+  if (p < 1 || p > totalPages) return;
+  loadRecords(p);
+}
+
+// ── Member Dropdown ────────────────────────────────────────────────────────
+function updateMemberDropdown(authors) {
+  const sel = document.getElementById('filterUser');
+  const cur = currentFilters.author;
+  sel.innerHTML = '<option value="">全部成员</option>' +
+    authors.map(n => '<option value="' + escapeHTML(n) + '"' + (n === cur ? ' selected' : '') + '>' + escapeHTML(n) + '</option>').join('');
+}
+
+// ── Tags UI ────────────────────────────────────────────────────────────────
+function getRecordTag(r) {
+  if (r.tag_name) return { id: r.tag_id, name: r.tag_name, note: r.tag_note || '' };
+  return null;
+}
+
+function tagOptionsHtml(selected, allowNew) {
+  return '<option value="">不添加标签</option>' +
+    (allTags || []).map(t => '<option value="' + escapeHTML(t.name) + '"' + (t.name === selected ? ' selected' : '') + '>' + escapeHTML(t.name) + '</option>').join('') +
+    (allowNew ? '<option value="__new__">＋ 新建标签…</option>' : '');
+}
+
+function updateTagOptions() {
+  const el = document.getElementById('nr_tag');
+  if (el) el.innerHTML = tagOptionsHtml(el.value, true);
+  document.querySelectorAll('.record-tag-select').forEach(sel => {
+    sel.innerHTML = tagOptionsHtml(sel.dataset.current || '');
+  });
+}
+
+function tagBadge(r) {
+  const p = getRecordTag(r);
+  if (!p || !p.name) return '';
+  return '<button class="tag-chip" data-pid="' + (p.id || '') + '" data-project="' + encodeURIComponent(p.name) + '">' + escapeHTML(p.name) + '</button>';
+}
+
+function bindTagChips() {
+  document.querySelectorAll('.tag-chip').forEach(btn => {
+    btn.onclick = function(e) {
+      e.stopPropagation();
+      showTagByName(decodeURIComponent(btn.dataset.project || ''));
+    };
+  });
+}
+
+// ── New-row tag helpers ────────────────────────────────────────────────────
+function _nrTagChange() {
+  const sel = document.getElementById('nr_tag');
+  const inp = document.getElementById('nr_tag_new');
+  const btn = document.getElementById('nr_tag_btn');
+  if (!sel || !inp) return;
+  const isNew = sel.value === '__new__';
+  inp.style.display = isNew ? 'inline-block' : 'none';
+  if (btn) btn.style.display = isNew ? 'inline-block' : 'none';
+  if (isNew) { sel.value = ''; inp.value = ''; inp.focus(); }
+}
+
+async function _nrTagConfirm(e) {
+  if (e && e.keyCode !== 13) return;
+  if (e) e.preventDefault();
+  const inp = document.getElementById('nr_tag_new');
+  const name = (inp && inp.value || '').trim();
+  if (!name) return;
+  const res = await fetch('/api/tags', { method: 'POST', headers: authHeaders(), body: JSON.stringify({ name }) });
+  const data = await res.json();
+  if (!res.ok) { showToast(data.error || '创建失败'); return; }
+  allTags.push({ id: data.id, name });
+  updateTagOptions();
+  const sel = document.getElementById('nr_tag');
+  if (sel) sel.value = name;
+  inp.style.display = 'none';
+  const btn = document.getElementById('nr_tag_btn');
+  if (btn) btn.style.display = 'none';
+  inp.value = '';
+  showToast('标签已创建 ✓');
+}
+
+function _nrkd(e) {
+  if (e.keyCode === 13) {
+    e.preventDefault();
+    if (e.shiftKey) {
+      const t = e.target, s = t.selectionStart;
+      t.value = t.value.slice(0, s) + String.fromCharCode(10) + t.value.slice(t.selectionEnd);
+      t.selectionStart = t.selectionEnd = s + 1;
+    } else {
+      saveNewRow();
+    }
+  }
+}
+
+// ── Render Table ───────────────────────────────────────────────────────────
+function renderTable() {
+  const tbody = document.getElementById('tableBody');
+  const isAdmin = currentUser && currentUser.isAdmin;
+  const trunc = (s, n = 28) => escapeHTML(s && s.length > n ? s.substring(0, n) + '…' : (s || ''));
+  let rows = [];
+
+  if (newRowActive) {
+    const today = new Date().toISOString().split('T')[0];
+    rows.push('<tr class="new-row">' +
+      '<td class="td-select"></td>' +
+      '<td class="nc"><input class="nr-inp" type="date" id="nr_date" value="' + today + '"/></td>' +
+      '<td class="nc"><div class="nr-stack"><textarea class="nr-inp" id="nr_done" placeholder="今日完成..." onkeydown="_nrkd(event)"></textarea>' +
+      '<div class="nr-tag-row"><select class="nr-tag name" id="nr_tag" onchange="_nrTagChange()"><option value="">不添加标签</option></select>' +
+      '<input class="nr-tag" id="nr_tag_new" placeholder="新标签名…" style="display:none;flex:1" onkeydown="_nrTagConfirm(event)"/>' +
+      '<button class="btn-sv" id="nr_tag_btn" onclick="_nrTagConfirm(null)" style="display:none;padding:3px 7px">✓</button></div></div></td>' +
+      '<td class="nc"><textarea class="nr-inp" id="nr_plan" placeholder="明日计划…" onkeydown="_nrkd(event)"></textarea></td>' +
+      '<td class="nc"><textarea class="nr-inp" id="nr_problem" placeholder="遇到问题…" onkeydown="_nrkd(event)"></textarea></td>' +
+      '<td class="nc"><textarea class="nr-inp" id="nr_thinking" placeholder="感悟思考…" onkeydown="_nrkd(event)"></textarea></td>' +
+      '<td class="nc"><textarea class="nr-inp" id="nr_important" placeholder="重要备注…" onkeydown="_nrkd(event)"></textarea></td>' +
+      '<td class="td-sub">' + (currentUser ? escapeHTML(currentUser.name) : '') + '</td>' +
+      '<td class="td-act"><button class="btn-sv" onclick="saveNewRow()">✓</button><button class="btn-cx" onclick="cancelNewRow()">✕</button></td>' +
+      '</tr>');
+  }
+
+  if (!allRecords.length) {
+    rows.push('<tr><td colspan="9" class="empty-msg">暂无记录</td></tr>');
+  } else {
+    allRecords.forEach(r => {
+      const own = currentUser && r.author_id === currentUser.id;
+      const canEdit = own || isAdmin;
+      const cnt = commentCounts[r.id] || 0;
+      const ed = canEdit ? ' ed' : '';
+      rows.push(
+        '<tr class="data-row" data-rid="' + r.id + '" onclick="toggleExpand(' + r.id + ')">' +
+        '<td class="td-select" onclick="event.stopPropagation()"><input class="row-select" type="checkbox" data-id="' + r.id + '"' + (selectedIds.has(r.id) ? ' checked' : '') + '/></td>' +
+        '<td class="td-date' + ed + '" data-id="' + r.id + '" data-field="date">' + escapeHTML(r.date) + '</td>' +
+        '<td class="td-cell' + ed + '" data-id="' + r.id + '" data-field="done">' + tagBadge(r) + firstLine(r.done) + '</td>' +
+        '<td class="td-cell' + ed + '" data-id="' + r.id + '" data-field="plan">' + trunc(r.plan) + '</td>' +
+        '<td class="td-cell' + ed + '" data-id="' + r.id + '" data-field="problem">' + trunc(r.problem) + '</td>' +
+        '<td class="td-cell' + ed + '" data-id="' + r.id + '" data-field="thinking">' + trunc(r.thinking) + '</td>' +
+        '<td class="td-cell' + ed + '" data-id="' + r.id + '" data-field="important">' + trunc(r.important) + '</td>' +
+        '<td class="td-sub">' + escapeHTML(r.author_name) + '</td>' +
+        '<td class="td-act" onclick="event.stopPropagation()">' +
+        '<button class="btn-comment" onclick="toggleExpand(' + r.id + ')">💬 ' + cnt + '</button>' +
+        (canEdit ? '<button class="btn-del" onclick="delRecord(' + r.id + ')">删除</button>' : '') +
+        '</td></tr>' +
+        '<tr class="expand-row" id="er_' + r.id + '" style="display:none">' +
+        '<td colspan="9" class="expand-panel">' +
+        '<div class="tag-edit-row" onclick="event.stopPropagation()"><label>标签</label>' +
+        '<select class="tag-edit-select record-tag-select" id="tag_sel_' + r.id + '" data-current="' + escapeHTML((getRecordTag(r) || {}).name || '') + '"></select>' +
+        '<button class="btn-sv" onclick="saveRecordTag(' + r.id + ')">保存</button>' +
+        (getRecordTag(r) ? '<button class="tag-chip" data-pid="' + (getRecordTag(r).id || '') + '" data-project="' + encodeURIComponent(getRecordTag(r).name) + '">查看时间树</button>' : '') +
+        '</div>' +
+        '<div class="expand-fields">' +
+        (r.done ? '<div class="ef-item"><span class="ef-label">今日完成</span><span class="ef-val' + (canEdit ? ' ef-editable" data-wid="' + r.id + '" data-field="done' : '') + '">' + displayText(r.done) + '</span></div>' : '') +
+        (r.plan ? '<div class="ef-item"><span class="ef-label">明日计划</span><span class="ef-val' + (canEdit ? ' ef-editable" data-wid="' + r.id + '" data-field="plan' : '') + '">' + displayText(r.plan) + '</span></div>' : '') +
+        (r.problem ? '<div class="ef-item"><span class="ef-label">遇到问题</span><span class="ef-val' + (canEdit ? ' ef-editable" data-wid="' + r.id + '" data-field="problem' : '') + '">' + displayText(r.problem) + '</span></div>' : '') +
+        (r.thinking ? '<div class="ef-item"><span class="ef-label">感悟思考</span><span class="ef-val' + (canEdit ? ' ef-editable" data-wid="' + r.id + '" data-field="thinking' : '') + '">' + displayText(r.thinking) + '</span></div>' : '') +
+        (r.important ? '<div class="ef-item"><span class="ef-label">重要备注</span><span class="ef-val' + (canEdit ? ' ef-editable" data-wid="' + r.id + '" data-field="important' : '') + '">' + displayText(r.important) + '</span></div>' : '') +
+        '</div><div class="expand-divider"></div>' +
+        '<div class="comment-list" id="cl_' + r.id + '"></div>' +
+        '<div class="comment-input-row" id="cbox_' + r.id + '" style="display:none">' +
+        '<div class="comment-avatar">' + (currentUser && currentUser.name ? currentUser.name[0].toUpperCase() : '?') + '</div>' +
+        '<input class="comment-inp" id="ci_' + r.id + '" placeholder="写下你的疑问或回复…" onkeydown="if(event.key===String.fromCharCode(13))submitComment(' + r.id + ')"/>' +
+        '<button class="comment-send" onclick="submitComment(' + r.id + ')">发送</button>' +
+        '<button class="btn-cancel-comment" onclick="toggleReplyBox(' + r.id + ')">取消</button>' +
+        '</div></td></tr>'
+      );
+    });
+  }
+
+  tbody.innerHTML = rows.join('');
+  updateTagOptions();
+
+  document.querySelectorAll('td.ed').forEach(td => {
+    td.addEventListener('click', e => {
+      e.stopPropagation();
+      document.querySelectorAll('.data-row').forEach(r => r.classList.remove('row-expanded'));
+      td.closest('tr').classList.add('row-expanded');
+      startEdit(td);
+    });
+  });
+
+  const allBox = document.getElementById('selectAll');
+  if (allBox) {
+    allBox.onchange = () => toggleSelectAll(allBox.checked);
+  }
+  document.querySelectorAll('.row-select').forEach(box => {
+    box.onchange = e => { e.stopPropagation(); toggleRowSelect(parseInt(box.dataset.id), box.checked); };
+    box.onclick = e => e.stopPropagation();
+  });
+  bindTagChips();
+  document.querySelectorAll('.ef-editable').forEach(el => {
+    el.addEventListener('click', e => { e.stopPropagation(); startExpandEdit(el); });
+  });
+  syncSelectAllCheckbox();
+  updateExportButton();
+  if (newRowActive) setTimeout(() => { const el = document.getElementById('nr_done'); if (el) el.focus(); }, 30);
+}
+
+// ── Inline Cell Editing ────────────────────────────────────────────────────
+function startEdit(td) {
+  if (td.dataset.editing) return;
+  td.dataset.editing = '1';
+  const id = parseInt(td.dataset.id), field = td.dataset.field;
+  const rec = allRecords.find(r => r.id === id);
+  if (!rec) return;
+  const origVal = rec[field] || '', origText = td.textContent;
+  td.classList.add('active-cell');
+  if (field === 'date') {
+    td.innerHTML = '<input class="ghost-input" type="date" value="' + origVal + '"/>';
+  } else {
+    td.innerHTML = '<textarea class="ghost-input"></textarea>';
+  }
+  const inp = td.querySelector('input,textarea');
+  if (field !== 'date') inp.value = origVal;
+  inp.focus();
+  if (field !== 'date') inp.selectionStart = inp.selectionEnd = (inp.value || '').length;
+
+  const commit = async () => {
+    const newVal = inp.value.trim();
+    delete td.dataset.editing; td.classList.remove('active-cell'); td.textContent = newVal;
+    td.addEventListener('click', e => { e.stopPropagation(); startEdit(td); }, { once: true });
+    if (newVal === origVal) return;
+    const body = Object.assign({}, rec); body[field] = newVal;
+    const res = await fetch('/api/worklogs/' + id, { method: 'PUT', headers: authHeaders(), body: JSON.stringify(body) });
+    if (res.ok) { rec[field] = newVal; showToast('已保存 ✓'); } else { showToast('保存失败'); td.textContent = origText; }
+  };
+  inp.addEventListener('blur', commit);
+  inp.addEventListener('keydown', e => {
+    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); inp.blur(); }
+    if (e.key === 'Enter' && e.shiftKey && inp.tagName === 'TEXTAREA') {
+      e.preventDefault();
+      const s = inp.selectionStart;
+      inp.value = inp.value.slice(0, s) + String.fromCharCode(10) + inp.value.slice(inp.selectionEnd);
+      inp.selectionStart = inp.selectionEnd = s + 1;
+    }
+    if (e.key === 'Escape') {
+      inp.removeEventListener('blur', commit);
+      delete td.dataset.editing; td.classList.remove('active-cell'); td.textContent = origText;
+      td.addEventListener('click', e => { e.stopPropagation(); startEdit(td); }, { once: true });
+    }
+    if (e.key === 'Tab') {
+      e.preventDefault();
+      const eds = Array.from(document.querySelectorAll('td.ed'));
+      const idx = eds.indexOf(td);
+      inp.removeEventListener('blur', commit);
+      commit().then(() => { const next = eds[e.shiftKey ? idx - 1 : idx + 1]; if (next) next.click(); });
+    }
+  });
+}
+
+function startExpandEdit(el) {
+  if (el.dataset.editing) return;
+  el.dataset.editing = '1';
+  const wid = parseInt(el.dataset.wid), field = el.dataset.field;
+  const rec = allRecords.find(r => r.id === wid);
+  if (!rec) return;
+  const origVal = rec[field] || '';
+  const efItem = el.closest ? el.closest('.ef-item') : el.parentElement;
+  const lockW = efItem ? efItem.offsetWidth : 0;
+  if (efItem && lockW) efItem.style.width = lockW + 'px';
+  const ta = document.createElement('textarea');
+  ta.className = 'ef-edit-ta';
+  ta.value = origVal;
+  el.innerHTML = ''; el.appendChild(ta);
+  ta.style.height = '1px';
+  ta.style.height = Math.max(ta.scrollHeight, 28) + 'px';
+  ta.focus();
+  ta.selectionStart = ta.selectionEnd = ta.value.length;
+  let saved = false;
+  const unlock = () => { if (efItem) efItem.style.width = ''; };
+  const commit = () => {
+    if (saved) return; saved = true;
+    const newVal = ta.value;
+    delete el.dataset.editing; unlock();
+    if (newVal === origVal) { el.innerHTML = displayText(origVal); return; }
+    fetch('/api/worklogs/' + wid, { method: 'PUT', headers: authHeaders(), body: JSON.stringify(Object.assign({}, rec, { [field]: newVal })) })
+      .then(res => {
+        if (res.ok) { rec[field] = newVal; showToast('已保存 ✓'); } else showToast('保存失败');
+        el.innerHTML = displayText(rec[field] || '');
+      });
+  };
+  ta.addEventListener('blur', commit);
+  ta.addEventListener('keydown', e => {
+    if (e.keyCode === 13 && !e.shiftKey) { e.preventDefault(); ta.blur(); }
+    if (e.keyCode === 13 && e.shiftKey) {
+      e.preventDefault();
+      const s = ta.selectionStart;
+      ta.value = ta.value.slice(0, s) + String.fromCharCode(10) + ta.value.slice(ta.selectionEnd);
+      ta.selectionStart = ta.selectionEnd = s + 1;
+    }
+    if (e.key === 'Escape') { saved = true; delete el.dataset.editing; unlock(); el.innerHTML = displayText(origVal); }
+  });
+}
+
+// ── Row Actions ────────────────────────────────────────────────────────────
+function addNewRow() {
+  if (newRowActive) { const el = document.getElementById('nr_done'); if (el) el.focus(); return; }
+  newRowActive = true; renderTable();
+}
+function cancelNewRow() { newRowActive = false; renderTable(); }
+
+async function saveNewRow() {
+  const date = (document.getElementById('nr_date') || {}).value || '';
+  const done = ((document.getElementById('nr_done') || {}).value || '').trim();
+  const plan = ((document.getElementById('nr_plan') || {}).value || '').trim();
+  const problem = ((document.getElementById('nr_problem') || {}).value || '').trim();
+  const thinking = ((document.getElementById('nr_thinking') || {}).value || '').trim();
+  const important = ((document.getElementById('nr_important') || {}).value || '').trim();
+  const tagName = ((document.getElementById('nr_tag') || {}).value || '').trim();
+  if (!date) { showToast('请选择日期'); return; }
+  if (!done && !plan && !tagName) { showToast('请至少填写今日完成、明日计划或标签'); return; }
+  const res = await fetch('/api/worklogs', { method: 'POST', headers: authHeaders(), body: JSON.stringify({ date, done, plan, problem, thinking, important, tagName }) });
+  if (res.ok) { newRowActive = false; showToast('提交成功 ✓'); await loadRecords(1); } else showToast('提交失败');
+}
+
+async function delRecord(id) {
+  if (!confirm('确定删除这条记录？')) return;
+  const res = await fetch('/api/worklogs/' + id, { method: 'DELETE', headers: authHeaders() });
+  if (res.ok) {
+    showToast('已删除');
+    const newPage = allRecords.length === 1 && currentPage > 1 ? currentPage - 1 : currentPage;
+    await loadRecords(newPage);
+  } else showToast('删除失败');
+}
+
+async function saveRecordTag(id) {
+  const sel = document.getElementById('tag_sel_' + id);
+  const rec = allRecords.find(r => r.id === id);
+  if (!sel || !rec) return;
+  const body = Object.assign({}, rec, { tagName: sel.value || '' });
+  const res = await fetch('/api/worklogs/' + id, { method: 'PUT', headers: authHeaders(), body: JSON.stringify(body) });
+  if (res.ok) { showToast('标签已保存 ✓'); await loadRecords(currentPage); await toggleExpand(id); } else showToast('标签保存失败');
+}
+
+// ── Selection & Export ─────────────────────────────────────────────────────
+function toggleRowSelect(id, checked) {
+  if (checked) selectedIds.add(id); else selectedIds.delete(id);
+  syncSelectAllCheckbox(); updateExportButton();
+}
+
+function toggleSelectAll(checked) {
+  allRecords.forEach(r => { if (checked) selectedIds.add(r.id); else selectedIds.delete(r.id); });
+  renderTable();
+}
+
+function syncSelectAllCheckbox() {
+  const allBox = document.getElementById('selectAll');
+  if (!allBox) return;
+  const selectedCount = allRecords.filter(r => selectedIds.has(r.id)).length;
+  allBox.checked = allRecords.length > 0 && selectedCount === allRecords.length;
+  allBox.indeterminate = selectedCount > 0 && selectedCount < allRecords.length;
+}
+
+function updateExportButton() {
+  const btn = document.getElementById('exportBtn');
+  if (!btn) return;
+  btn.disabled = allRecords.filter(r => selectedIds.has(r.id)).length === 0;
+}
+
+function escapeCSV(value) {
+  const v = value == null ? '' : String(value);
+  return '"' + v.replace(/"/g, '""') + '"';
+}
+
+function exportSelected() {
+  const rows = allRecords.filter(r => selectedIds.has(r.id));
+  if (!rows.length) { showToast('请先选择记录'); return; }
+  const header = ['Date', 'Done', 'Tag', 'Plan', 'Problem', 'Thinking', 'Important', 'Author'];
+  const lines = [header.map(escapeCSV).join(',')];
+  rows.forEach(r => {
+    const p = getRecordTag(r) || {};
+    lines.push([r.date, r.done, p.name || '', r.plan, r.problem, r.thinking, r.important, r.author_name].map(escapeCSV).join(','));
+  });
+  const blob = new Blob(['﻿' + lines.join('\r\n')], { type: 'text/csv;charset=utf-8;' });
+  const link = document.createElement('a');
+  const today = new Date().toISOString().slice(0, 10);
+  link.href = URL.createObjectURL(blob);
+  link.download = 'worklogs-' + today + '.csv';
+  document.body.appendChild(link); link.click(); document.body.removeChild(link);
+  URL.revokeObjectURL(link.href);
+}
+
+// ── Expand / Comments ──────────────────────────────────────────────────────
+async function toggleExpand(id) {
+  const row = document.getElementById('er_' + id);
+  if (!row) return;
+  const isOpen = row.style.display !== 'none';
+  document.querySelectorAll('.expand-row').forEach(r => r.style.display = 'none');
+  document.querySelectorAll('.data-row').forEach(r => r.classList.remove('row-expanded'));
+  if (isOpen) return;
+  row.style.display = 'table-row';
+  const dr = document.querySelector('tr[data-rid="' + id + '"]');
+  if (dr) dr.classList.add('row-expanded');
+  await loadComments(id);
+}
+
+async function loadComments(id) {
+  const res = await fetch('/api/worklogs/' + id + '/comments', { headers: authHeaders() });
+  if (!res.ok) return;
+  renderComments(id, await res.json());
+}
+
+function renderComments(id, comments) {
+  const el = document.getElementById('cl_' + id);
+  if (!el) return;
+  const replyBtn = '<button class="btn-reply-sm" onclick="toggleReplyBox(' + id + ')">✏️ 回复</button>';
+  if (!comments.length) { el.innerHTML = '<div class="no-comment">还没有评论，来第一个提问吧 ' + replyBtn + '</div>'; return; }
+  el.innerHTML = comments.map(c => {
+    const t = c.created_at ? new Date(c.created_at * 1000).toLocaleDateString('zh-CN', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : '';
+    const isMe = currentUser && c.author_id === currentUser.id;
+    const isAdm = currentUser && currentUser.isAdmin;
+    return '<div class="comment-item">' +
+      '<div class="comment-avatar-sm">' + (c.author_name ? c.author_name[0].toUpperCase() : '?') + '</div>' +
+      '<div class="comment-body"><div class="comment-meta">' +
+      '<span class="comment-name">' + escapeHTML(c.author_name) + '</span>' +
+      '<span class="comment-time">' + t + '</span>' +
+      ((isMe || isAdm) ? '<button class="btn-del-comment" onclick="delComment(' + id + ',' + c.id + ')">删除</button>' : '') +
+      replyBtn +
+      '</div><div class="comment-text">' + escapeHTML(c.text) + '</div></div></div>';
+  }).join('');
+}
+
+function toggleReplyBox(id) {
+  const box = document.getElementById('cbox_' + id);
+  if (!box) return;
+  const isOpen = box.style.display !== 'none';
+  box.style.display = isOpen ? 'none' : 'flex';
+  if (!isOpen) setTimeout(() => { const el = document.getElementById('ci_' + id); if (el) el.focus(); }, 30);
+}
+
+async function submitComment(id) {
+  const inp = document.getElementById('ci_' + id);
+  const text = inp && inp.value.trim();
+  if (!text) return;
+  inp.value = '';
+  const res = await fetch('/api/worklogs/' + id + '/comments', { method: 'POST', headers: authHeaders(), body: JSON.stringify({ text }) });
+  if (res.ok) {
+    const box = document.getElementById('cbox_' + id);
+    if (box) box.style.display = 'none';
+    await loadComments(id);
+    commentCounts[id] = (commentCounts[id] || 0) + 1;
+    const cc = document.querySelector('tr[data-rid="' + id + '"] .btn-comment');
+    if (cc) cc.textContent = '💬 ' + commentCounts[id];
+    await checkNotifications();
+  }
+}
+
+async function delComment(wid, cid) {
+  if (!confirm('删除这条评论？')) return;
+  const res = await fetch('/api/comments/' + cid, { method: 'DELETE', headers: authHeaders() });
+  if (res.ok) await loadComments(wid);
+}
+
+// ── Notifications (DB-persisted) ───────────────────────────────────────────
+async function checkNotifications() {
+  if (!currentUser) return;
+  try {
+    const res = await fetch('/api/my-comment-notifications', { headers: authHeaders() });
+    if (!res.ok) return;
+    const { items, unread_count } = await res.json();
+    const btn = document.getElementById('notifBtn');
+    const badge = document.getElementById('notifCount');
+    if (items.length > 0) {
+      btn.style.display = 'inline-flex';
+      badge.textContent = unread_count;
+      badge.style.display = unread_count > 0 ? 'inline' : 'none';
+    } else {
+      btn.style.display = 'none';
+    }
+    const list = document.getElementById('notifList');
+    if (!items.length) { list.innerHTML = '<div class="notif-empty">暂无新回复</div>'; return; }
+    list.innerHTML = items.map(n => {
+      const t = n.created_at ? new Date(n.created_at * 1000).toLocaleDateString('zh-CN', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : '';
+      return '<div class="notif-item ' + (n.is_new ? 'unread' : '') + '" onclick="goToNotif(' + n.worklog_id + ',' + JSON.stringify(n.worklog_date) + ')">' +
+        '<div class="notif-who"><span>' + escapeHTML(n.author_name) + '</span> 回复了你的记录「' + escapeHTML(n.worklog_date) + '」</div>' +
+        '<div class="notif-time">' + t + '</div></div>';
+    }).join('');
+    window._notifs = items;
+  } catch(e) {}
+}
+
+async function toggleNotif() {
+  const panel = document.getElementById('notifPanel');
+  const isOpen = panel.style.display !== 'none';
+  panel.style.display = isOpen ? 'none' : 'block';
+  if (!isOpen) {
+    await fetch('/api/notifications/mark-read', { method: 'POST', headers: authHeaders() });
+    document.getElementById('notifCount').style.display = 'none';
+    document.querySelectorAll('.notif-item').forEach(el => el.classList.remove('unread'));
+  }
+}
+
+async function goToNotif(rid, worklogDate) {
+  document.getElementById('notifPanel').style.display = 'none';
+  const row = document.querySelector('tr[data-rid="' + rid + '"]');
+  if (row) {
+    await toggleExpand(rid);
+    row.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    return;
+  }
+  // Record not on current page — filter by date to find it
+  if (worklogDate) {
+    document.getElementById('filterDateFrom').value = worklogDate;
+    document.getElementById('filterDateTo').value = worklogDate;
+    readFilters();
+    await loadRecords(1);
+    setTimeout(async () => {
+      const row2 = document.querySelector('tr[data-rid="' + rid + '"]');
+      if (row2) { await toggleExpand(rid); row2.scrollIntoView({ behavior: 'smooth', block: 'center' }); }
+    }, 400);
+  }
+}
+
+document.addEventListener('click', e => {
+  const panel = document.getElementById('notifPanel');
+  const btn = document.getElementById('notifBtn');
+  if (panel && !panel.contains(e.target) && btn && !btn.contains(e.target)) panel.style.display = 'none';
+});
+
+// ── Tag Management ─────────────────────────────────────────────────────────
+function renderTagManage() {
+  const list = document.getElementById('tagManageList');
+  if (!list) return;
+  if (!allTags.length) { list.innerHTML = '<div class="tag-manage-empty">暂无标签</div>'; return; }
+  list.innerHTML = allTags.map(t =>
+    '<div class="tag-manage-row"><input id="tag_edit_' + t.id + '" value="' + escapeHTML(t.name) + '"/>' +
+    '<div class="tag-manage-actions"><button class="btn-sv" onclick="renameTag(' + t.id + ')">保存</button>' +
+    '<button class="btn-del" onclick="deleteTag(' + t.id + ')">删除</button></div></div>'
+  ).join('');
+}
+
+async function showTagManage() { showModal('tagManageModal'); await loadTags(); renderTagManage(); }
+function hideTagManage() { hideModal('tagManageModal'); }
+
+async function addTag() {
+  const input = document.getElementById('newTagName');
+  const name = (input && input.value || '').trim();
+  if (!name) { showToast('标签名不能为空'); return; }
+  const res = await fetch('/api/tags', { method: 'POST', headers: authHeaders(), body: JSON.stringify({ name }) });
+  const data = await res.json();
+  if (!res.ok) { showToast(data.error || '添加失败'); return; }
+  input.value = '';
+  await loadTags(); renderTagManage(); renderTable();
+}
+
+async function renameTag(id) {
+  const input = document.getElementById('tag_edit_' + id);
+  const name = (input && input.value || '').trim();
+  if (!name) { showToast('标签名不能为空'); return; }
+  const res = await fetch('/api/tags/' + id, { method: 'PUT', headers: authHeaders(), body: JSON.stringify({ name }) });
+  const data = await res.json();
+  if (!res.ok) { showToast(data.error || '保存失败'); return; }
+  await loadRecords(currentPage); renderTagManage();
+}
+
+async function deleteTag(id) {
+  if (!confirm('确定删除这个标签？相关记录会取消标签关联')) return;
+  const res = await fetch('/api/tags/' + id, { method: 'DELETE', headers: authHeaders() });
+  if (!res.ok) { showToast('删除失败'); return; }
+  await loadRecords(currentPage); renderTagManage();
+}
+
+async function showTagByName(name) {
+  if (!name) return;
+  showModal('tagModal');
+  document.getElementById('tagTitle').textContent = name;
+  document.getElementById('tagMeta').textContent = '加载中...';
+  document.getElementById('tagTimeline').innerHTML = '';
+  const entries = [], seen = {};
+  const project = (allTags || []).find(p => p.name === name);
+  if (project) {
+    const res = await fetch('/api/tags/' + project.id + '/entries', { headers: authHeaders() });
+    if (res.ok) (await res.json()).forEach(e => { entries.push(e); seen[e.worklog_id] = true; });
+  }
+  allRecords.forEach(r => {
+    const p = getRecordTag(r);
+    if (p && p.name === name && !seen[r.id]) entries.push({ worklog_id: r.id, date: r.date, done: r.done, plan: r.plan, thinking: r.thinking });
+  });
+  entries.sort((a, b) => String(b.date || '').localeCompare(String(a.date || '')));
+  document.getElementById('tagTitle').textContent = name;
+  document.getElementById('tagMeta').textContent = entries.length ? '共 ' + entries.length + ' 条相关记录' : '还没有相关记录';
+  document.getElementById('tagTimeline').innerHTML = entries.length ? entries.map(e => {
+    const note = e.done || e.plan || e.thinking || '';
+    return '<div class="tag-entry"><div class="tag-date">' + escapeHTML(e.date) + '</div><div><div class="tag-note">' + escapeHTML(note) + '</div></div></div>';
+  }).join('') : '<div class="notif-empty">暂无相关记录</div>';
+}
+
+function hideTagModal() { hideModal('tagModal'); }
+
+// ── Admin ──────────────────────────────────────────────────────────────────
+async function showAdminPanel() {
+  showModal('adminModal');
+  const res = await fetch('/api/admin/users', { headers: authHeaders() });
+  const users = await res.json();
+  document.getElementById('adminUserList').innerHTML = users.map(u =>
+    '<div style="display:flex;align-items:center;justify-content:space-between;padding:10px 0;border-bottom:1px solid #e0e4eb;">' +
+    '<div><div style="font-size:.84rem;font-weight:600;color:#1a2030;">' + escapeHTML(u.name) + '</div>' +
+    '<div style="font-size:.75rem;color:#8a94a6;">' + escapeHTML(u.email) + '</div></div>' +
+    '<button class="btn-logout" onclick="showResetModal(' + u.id + ',this.dataset.name)" data-name="' + escapeHTML(u.name) + '">重置密码</button></div>'
+  ).join('');
+}
+function hideAdminPanel() { hideModal('adminModal'); }
+
+function showResetModal(uid, uname) {
+  resetTargetId = uid;
+  document.getElementById('resetTargetName').textContent = '为「' + uname + '」重置密码';
+  document.getElementById('reset_new').value = '';
+  document.getElementById('reset_error').textContent = '';
+  showModal('resetModal');
+}
+function hideResetModal() { hideModal('resetModal'); }
+
+async function doResetPwd() {
+  const newP = document.getElementById('reset_new').value;
+  const errEl = document.getElementById('reset_error');
+  errEl.textContent = '';
+  if (!newP) { errEl.textContent = '请填写新密码'; return; }
+  if (newP.length < 6) { errEl.textContent = '密码至少6位'; return; }
+  const res = await fetch('/api/admin/reset-password', { method: 'POST', headers: authHeaders(), body: JSON.stringify({ userId: resetTargetId, newPassword: newP }) });
+  const data = await res.json();
+  if (!res.ok) { errEl.textContent = data.error; return; }
+  hideResetModal(); hideAdminPanel(); showToast('密码已重置 ✓');
+}
+
+// ── Password Change ────────────────────────────────────────────────────────
+function showChangePwd() {
+  document.getElementById('pwd_old').value = '';
+  document.getElementById('pwd_new').value = '';
+  document.getElementById('pwd_confirm').value = '';
+  document.getElementById('pwd_error').textContent = '';
+  showModal('pwdModal');
+}
+function hideChangePwd() { hideModal('pwdModal'); }
+
+async function doChangePwd() {
+  const oldP = document.getElementById('pwd_old').value;
+  const newP = document.getElementById('pwd_new').value;
+  const cfm = document.getElementById('pwd_confirm').value;
+  const errEl = document.getElementById('pwd_error');
+  errEl.textContent = '';
+  if (!oldP || !newP || !cfm) { errEl.textContent = '请填写所有字段'; return; }
+  if (newP !== cfm) { errEl.textContent = '两次新密码不一致'; return; }
+  if (newP.length < 6) { errEl.textContent = '新密码至少6位'; return; }
+  const res = await fetch('/api/change-password', { method: 'POST', headers: authHeaders(), body: JSON.stringify({ oldPassword: oldP, newPassword: newP }) });
+  const data = await res.json();
+  if (!res.ok) { errEl.textContent = data.error; return; }
+  hideChangePwd(); showToast('密码修改成功 ✓');
+}
+</script>
+</body>
+</html>
