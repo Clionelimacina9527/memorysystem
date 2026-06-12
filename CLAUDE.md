@@ -70,6 +70,19 @@ JWT-based: HMAC-SHA256, 7-day expiry. `signJWT`/`verifyJWT` use Web Crypto direc
 
 `setWorklogTag` replaces a worklog's tag: deletes existing `project_entries` rows then inserts a new one, creating the tag in `projects` if needed.
 
+### File attachments (Cloudflare Workers KV)
+
+KV namespace `memory-uploadfiles` is bound as `env.KV`. Files stored with a UUID key; metadata (filename, MIME type) stored in KV metadata and in the `attachments` D1 table.
+
+- `POST /api/worklogs/{id}/attachments` — multipart upload, max 5 MB, allowed: `image/*` + `application/pdf`
+- `GET /api/files/{key}` — serves file from KV with correct `Content-Type`; **no auth** (UUID is the capability — 122 bits of entropy)
+- `DELETE /api/attachments/{id}` — deletes from KV and D1 (owner or admin only)
+- Deleting a worklog also purges all its KV files first
+
+| Table | Purpose |
+|-------|---------|
+| `attachments` | Metadata per file: `worklog_id`, `file_key` (KV UUID), `file_name`, `file_size`, `file_type`, `author_id` |
+
 ### Pagination (server-side)
 
 `GET /api/worklogs` accepts `page`, `pageSize` (max 100, default 50), `author`, `dateFrom`, `dateTo`, `keyword`. Returns `{ results, total, page, pageSize, authors }`. Filtering and keyword search are handled in SQL with dynamic WHERE clauses. Frontend sends filter state as query params; a 350ms debounce applies to keyword input.
