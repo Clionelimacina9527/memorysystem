@@ -143,6 +143,20 @@ textarea.nr-inp{height:72px;resize:none;padding:6px 8px;line-height:1.5;vertical
 .page-btn:hover:not(:disabled){background:var(--accent-light);border-color:var(--accent);}
 .page-btn:disabled{opacity:.4;cursor:not-allowed;}
 .page-info{font-size:.8rem;color:var(--muted);white-space:nowrap;}
+.attach-section{margin-bottom:14px;}
+.attach-header{display:flex;align-items:center;gap:10px;margin-bottom:8px;}
+.btn-attach{background:var(--accent);color:white;border:none;border-radius:4px;padding:3px 10px;font-size:.74rem;cursor:pointer;font-family:'Noto Sans SC',sans-serif;}
+.btn-attach:hover{opacity:.88;}
+.attach-list{display:flex;flex-wrap:wrap;gap:10px;min-height:20px;}
+.attach-item{position:relative;display:flex;flex-direction:column;align-items:center;gap:4px;}
+.attach-thumb{width:90px;height:90px;object-fit:cover;border-radius:6px;border:1px solid var(--border);cursor:pointer;display:block;}
+.attach-thumb:hover{opacity:.85;}
+.attach-file{display:flex;align-items:center;gap:5px;font-size:.78rem;color:var(--accent);text-decoration:none;border:1px solid var(--border);border-radius:6px;padding:8px 10px;background:#f8faff;max-width:120px;}
+.attach-file:hover{background:var(--accent-light);}
+.attach-name{font-size:.68rem;color:var(--muted);max-width:90px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;text-align:center;}
+.btn-del-attach{position:absolute;top:-5px;right:-5px;background:var(--red);color:white;border:none;border-radius:50%;width:17px;height:17px;font-size:.7rem;cursor:pointer;line-height:17px;text-align:center;padding:0;}
+.no-attach{font-size:.78rem;color:var(--muted);}
+.attach-uploading{font-size:.78rem;color:var(--muted);font-style:italic;}
 .modal-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.4);z-index:300;align-items:center;justify-content:center;}
 .modal-box{background:white;border-radius:14px;padding:28px;width:100%;max-width:360px;box-shadow:0 4px 24px rgba(0,0,0,.15);}
 .modal-title{font-size:.95rem;font-weight:700;color:#1a2030;margin-bottom:18px;}
@@ -597,7 +611,15 @@ function renderTable() {
         (r.problem ? '<div class="ef-item"><span class="ef-label">遇到问题</span><span class="ef-val' + (canEdit ? ' ef-editable" data-wid="' + r.id + '" data-field="problem' : '') + '">' + displayText(r.problem) + '</span></div>' : '') +
         (r.thinking ? '<div class="ef-item"><span class="ef-label">感悟思考</span><span class="ef-val' + (canEdit ? ' ef-editable" data-wid="' + r.id + '" data-field="thinking' : '') + '">' + displayText(r.thinking) + '</span></div>' : '') +
         (r.important ? '<div class="ef-item"><span class="ef-label">重要备注</span><span class="ef-val' + (canEdit ? ' ef-editable" data-wid="' + r.id + '" data-field="important' : '') + '">' + displayText(r.important) + '</span></div>' : '') +
-        '</div><div class="expand-divider"></div>' +
+        '</div>' +
+        '<div class="attach-section">' +
+          '<div class="attach-header"><span class="ef-label">附件</span>' +
+          (canEdit ? '<label class="btn-attach" for="af_' + r.id + '">＋ 上传</label>' +
+            '<input type="file" id="af_' + r.id + '" style="display:none" accept="image/jpeg,image/png,image/gif,image/webp,application/pdf" onchange="uploadAttachment(' + r.id + ',this)"/>' : '') +
+          '</div>' +
+          '<div class="attach-list" id="al_' + r.id + '"><span class="no-attach">–</span></div>' +
+        '</div>' +
+        '<div class="expand-divider"></div>' +
         '<div class="comment-list" id="cl_' + r.id + '"></div>' +
         '<div class="comment-input-row" id="cbox_' + r.id + '" style="display:none">' +
         '<div class="comment-avatar">' + (currentUser && currentUser.name ? currentUser.name[0].toUpperCase() : '?') + '</div>' +
@@ -833,7 +855,7 @@ async function toggleExpand(id) {
   row.style.display = 'table-row';
   const dr = document.querySelector('tr[data-rid="' + id + '"]');
   if (dr) dr.classList.add('row-expanded');
-  await loadComments(id);
+  await Promise.all([loadComments(id), loadAttachments(id)]);
 }
 
 async function loadComments(id) {
@@ -891,6 +913,68 @@ async function delComment(wid, cid) {
   if (!confirm('删除这条评论？')) return;
   const res = await fetch('/api/comments/' + cid, { method: 'DELETE', headers: authHeaders() });
   if (res.ok) await loadComments(wid);
+}
+
+// ── Attachments ───────────────────────────────────────────────────────────
+async function loadAttachments(wid) {
+  const res = await fetch('/api/worklogs/' + wid + '/attachments', { headers: authHeaders() });
+  if (!res.ok) return;
+  renderAttachments(wid, await res.json());
+}
+
+function renderAttachments(wid, items) {
+  const el = document.getElementById('al_' + wid);
+  if (!el) return;
+  const rec = allRecords.find(r => r.id === wid);
+  const canEdit = currentUser && rec && (rec.author_id === currentUser.id || (currentUser.isAdmin));
+  if (!items.length) { el.innerHTML = '<span class="no-attach">暂无附件</span>'; return; }
+  el.innerHTML = items.map(a => {
+    const isImage = a.file_type.startsWith('image/');
+    const url = '/api/files/' + a.file_key;
+    const sizeStr = a.file_size > 1024 * 1024
+      ? (a.file_size / 1024 / 1024).toFixed(1) + ' MB'
+      : Math.round(a.file_size / 1024) + ' KB';
+    return '<div class="attach-item">' +
+      (isImage
+        ? '<a href="' + url + '" target="_blank"><img class="attach-thumb" src="' + url + '" alt="' + escapeHTML(a.file_name) + '" loading="lazy"/></a>'
+        : '<a class="attach-file" href="' + url + '" target="_blank" download="' + escapeHTML(a.file_name) + '">📄 ' + escapeHTML(a.file_name) + '</a>') +
+      '<span class="attach-name" title="' + escapeHTML(a.file_name) + '">' + escapeHTML(a.file_name) + '</span>' +
+      '<span class="attach-name" style="color:#bcc4d0">' + sizeStr + '</span>' +
+      (canEdit ? '<button class="btn-del-attach" onclick="delAttachment(' + wid + ',' + a.id + ')" title="删除">×</button>' : '') +
+      '</div>';
+  }).join('');
+}
+
+async function uploadAttachment(wid, input) {
+  const file = input.files[0];
+  input.value = '';
+  if (!file) return;
+  if (file.size > 5 * 1024 * 1024) { showToast('文件不能超过 5MB'); return; }
+  const allowed = ['image/jpeg', 'image/png', 'image/gif', 'image/webp', 'application/pdf'];
+  if (!allowed.includes(file.type)) { showToast('仅支持 JPG / PNG / GIF / WebP 图片和 PDF'); return; }
+  const el = document.getElementById('al_' + wid);
+  if (el) el.innerHTML = '<span class="attach-uploading">上传中…</span>';
+  const fd = new FormData();
+  fd.append('file', file);
+  const res = await fetch('/api/worklogs/' + wid + '/attachments', {
+    method: 'POST',
+    headers: { 'Authorization': 'Bearer ' + localStorage.getItem('memory_token') },
+    body: fd
+  });
+  if (res.ok) {
+    showToast('上传成功 ✓');
+    await loadAttachments(wid);
+  } else {
+    const data = await res.json().catch(() => ({}));
+    showToast(data.error || '上传失败');
+    await loadAttachments(wid);
+  }
+}
+
+async function delAttachment(wid, aid) {
+  if (!confirm('删除这个附件？')) return;
+  const res = await fetch('/api/attachments/' + aid, { method: 'DELETE', headers: authHeaders() });
+  if (res.ok) { showToast('已删除'); await loadAttachments(wid); } else showToast('删除失败');
 }
 
 // ── Notifications (DB-persisted) ───────────────────────────────────────────

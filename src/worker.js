@@ -139,6 +139,18 @@ async function initDB(db) {
     ip TEXT DEFAULT '',
     attempted_at INTEGER DEFAULT (strftime('%s','now'))
   )`).run();
+  await db.prepare(`CREATE TABLE IF NOT EXISTS attachments (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    worklog_id INTEGER NOT NULL,
+    file_key TEXT NOT NULL,
+    file_name TEXT NOT NULL,
+    file_size INTEGER NOT NULL,
+    file_type TEXT NOT NULL,
+    author_id INTEGER NOT NULL,
+    author_name TEXT NOT NULL,
+    created_at INTEGER DEFAULT (strftime('%s','now')),
+    FOREIGN KEY(worklog_id) REFERENCES worklogs(id) ON DELETE CASCADE
+  )`).run();
 }
 
 const CORS = {
@@ -199,6 +211,23 @@ export default {
       }
       const token = await signJWT({ id: dbUser.id, name: dbUser.name, email: dbUser.email }, JWT_SECRET);
       return json({ token, user: { id: dbUser.id, name: dbUser.name, email: dbUser.email, isAdmin: dbUser.email === ADMIN_EMAIL } });
+    }
+
+    // --- File serving (capability URL, no auth required) ---
+    const fileMatch = path.match(/^\/api\/files\/([a-zA-Z0-9_-]+)$/);
+    if (fileMatch && method === "GET") {
+      const key = fileMatch[1];
+      const result = await env.KV.getWithMetadata(key, "arrayBuffer");
+      if (!result.value) return json({ error: "文件不存在" }, 404);
+      const { filename, type } = result.metadata || {};
+      return new Response(result.value, {
+        headers: {
+          ...CORS,
+          "Content-Type": type || "application/octet-stream",
+          "Content-Disposition": `inline; filename="${filename || key}"`,
+          "Cache-Control": "private, max-age=86400",
+        }
+      });
     }
 
     // --- All routes below require auth ---
@@ -326,9 +355,48 @@ export default {
 
       if (method === "DELETE") {
         if (!canEdit) return json({ error: "无权限" }, 403);
+        // Clean up KV files before deleting worklog
+        const attachRows = await env.DB.prepare("SELECT file_key FROM attachments WHERE worklog_id=?").bind(wid).all();
+        await Promise.all(attachRows.results.map(a => env.KV.delete(a.file_key)));
         await env.DB.prepare("DELETE FROM worklogs WHERE id=?").bind(wid).run();
         return json({ ok: true });
       }
+    }
+
+    // --- Attachments ---
+    const attachListMatch = path.match(/^\/api\/worklogs\/(\d+)\/attachments$/);
+    if (attachListMatch) {
+      const wid = parseInt(attachListMatch[1]);
+      if (method === "GET") {
+        const rows = await env.DB.prepare("SELECT id, file_key, file_name, file_size, file_type, author_id, author_name, created_at FROM attachments WHERE worklog_id=? ORDER BY created_at ASC").bind(wid).all();
+        return json(rows.results);
+      }
+      if (method === "POST") {
+        const formData = await req.formData();
+        const file = formData.get("file");
+        if (!file) return json({ error: "没有文件" }, 400);
+        const allowed = ["image/jpeg", "image/png", "image/gif", "image/webp", "application/pdf"];
+        if (!allowed.includes(file.type)) return json({ error: "仅支持图片（JPG/PNG/GIF/WebP）和PDF" }, 400);
+        if (file.size > 5 * 1024 * 1024) return json({ error: "文件不能超过5MB" }, 400);
+        const key = crypto.randomUUID();
+        const buf = await file.arrayBuffer();
+        await env.KV.put(key, buf, { metadata: { filename: file.name, type: file.type } });
+        const r = await env.DB.prepare(
+          "INSERT INTO attachments(worklog_id,file_key,file_name,file_size,file_type,author_id,author_name) VALUES(?,?,?,?,?,?,?)"
+        ).bind(wid, key, file.name, file.size, file.type, user.id, user.name).run();
+        return json({ id: r.meta.last_row_id, file_key: key, file_name: file.name, file_type: file.type, file_size: file.size });
+      }
+    }
+
+    const delAttachMatch = path.match(/^\/api\/attachments\/(\d+)$/);
+    if (delAttachMatch && method === "DELETE") {
+      const aid = parseInt(delAttachMatch[1]);
+      const att = await env.DB.prepare("SELECT * FROM attachments WHERE id=?").bind(aid).first();
+      if (!att) return json({ error: "不存在" }, 404);
+      if (!isAdmin && att.author_id !== user.id) return json({ error: "无权限" }, 403);
+      await env.KV.delete(att.file_key);
+      await env.DB.prepare("DELETE FROM attachments WHERE id=?").bind(aid).run();
+      return json({ ok: true });
     }
 
     // --- Comments ---

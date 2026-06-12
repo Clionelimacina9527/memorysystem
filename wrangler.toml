@@ -12,4 +12,8 @@ database_name = "memory-db"
 
 database_id = "94515cf4-4d04-4e01-abed-7cb646a0ce26"
 
+[[kv_namespaces]]
+binding = "KV"
+id = "4de8c374b2ea456d86b11aac9fb8143c"
+
 # 所有敏感配置通过 Cloudflare Secrets 管理，不写入此文件
