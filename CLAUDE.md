@@ -91,6 +91,27 @@ KV namespace `memory-uploadfiles` is bound as `env.KV`. Files stored with a UUID
 
 `users.notif_last_seen` (unix timestamp) tracks when the user last read notifications. `GET /api/my-comment-notifications` returns `{ items, unread_count }` where `is_new = created_at > notif_last_seen`. `POST /api/notifications/mark-read` sets `notif_last_seen = now`. Read state persists across devices/browsers. Feishu webhook is still fired fire-and-forget on comment creation.
 
+### Bulk delete
+
+Toolbar shows 「批量删除」 only when rows are selected. Sends parallel `DELETE /api/worklogs/{id}` for each selected ID; server purges KV attachments first. After deletion, navigates back one page if current page is now empty.
+
+### Export
+
+- 「导出选中」 — exports only checked rows on the current page (client-side CSV)
+- 「导出全部」 — calls `GET /api/worklogs?export=1` with current filter params; worker skips pagination and returns up to 5000 matching rows; downloads as CSV
+
+### New-record attachments
+
+The new-row form has a 「📎 附件」 file picker. Files are staged in `pendingNewRowFiles[]` before the record is saved. On submit, `saveNewRow()` first creates the worklog, obtains its `id`, then uploads all staged files in parallel via `POST /api/worklogs/{id}/attachments`. Cancelling the new row clears `pendingNewRowFiles`.
+
+### CI/CD (GitHub Actions)
+
+`.github/workflows/deploy.yml` triggers on push to `main`: runs `node build.js`, then deploys via `cloudflare/wrangler-action@v3`.
+
+**Required GitHub repository secrets** (Settings → Secrets and variables → Actions):
+- `CLOUDFLARE_API_TOKEN` — create at Cloudflare Dashboard → My Profile → API Tokens (use "Edit Cloudflare Workers" template)
+- `CLOUDFLARE_ACCOUNT_ID` — shown in the right sidebar of your Cloudflare Dashboard
+
 ### Frontend
 
 Stores `memory_token` and `memory_user` in `localStorage`. All API calls use `Authorization: Bearer <token>`. Table rows are editable in-place. Pagination controls appear below the table when `totalPages > 1`. The `pictures/` directory is not referenced by the worker.
