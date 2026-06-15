@@ -260,6 +260,13 @@ export default {
       const countSQL = `SELECT COUNT(DISTINCT w.id) as total FROM worklogs w LEFT JOIN project_entries pe ON pe.worklog_id=w.id LEFT JOIN projects p ON p.id=pe.project_id ${where}`;
       const dataSQL = `SELECT w.*, p.id as tag_id, p.name as tag_name, pe.progress as tag_note FROM worklogs w LEFT JOIN project_entries pe ON pe.worklog_id=w.id LEFT JOIN projects p ON p.id=pe.project_id ${where} ORDER BY w.date DESC, w.created_at DESC LIMIT ? OFFSET ?`;
 
+      // Export mode: return all matching records without pagination (max 5000)
+      if (url.searchParams.get("export") === "1") {
+        const exportSQL = `SELECT w.*, p.id as tag_id, p.name as tag_name, pe.progress as tag_note FROM worklogs w LEFT JOIN project_entries pe ON pe.worklog_id=w.id LEFT JOIN projects p ON p.id=pe.project_id ${where} ORDER BY w.date DESC, w.created_at DESC LIMIT 5000`;
+        const rows = await env.DB.prepare(exportSQL).bind(...params).all();
+        return json({ results: rows.results });
+      }
+
       const countRow = await env.DB.prepare(countSQL).bind(...params).first();
       const total = countRow?.total || 0;
       const rows = await env.DB.prepare(dataSQL).bind(...params, pageSize, offset).all();
@@ -272,12 +279,12 @@ export default {
     }
 
     if (path === "/api/worklogs" && method === "POST") {
-      const { date, done, plan, problem, thinking, important, tagName, projectName } = await req.json();
+      const { date, done, plan, problem, thinking, important, tagName } = await req.json();
       if (!date) return json({ error: "请选择日期" }, 400);
       const r = await env.DB.prepare(
         "INSERT INTO worklogs(date,done,plan,problem,thinking,important,author_id,author_name) VALUES(?,?,?,?,?,?,?,?)"
       ).bind(date, done || "", plan || "", problem || "", thinking || "", important || "", user.id, user.name).run();
-      await setWorklogTag(env.DB, r.meta.last_row_id, tagName || projectName || "", user);
+      await setWorklogTag(env.DB, r.meta.last_row_id, tagName || "", user);
       return json({ id: r.meta.last_row_id });
     }
 

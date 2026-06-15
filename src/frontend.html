@@ -157,6 +157,15 @@ textarea.nr-inp{height:72px;resize:none;padding:6px 8px;line-height:1.5;vertical
 .btn-del-attach{position:absolute;top:-5px;right:-5px;background:var(--red);color:white;border:none;border-radius:50%;width:17px;height:17px;font-size:.7rem;cursor:pointer;line-height:17px;text-align:center;padding:0;}
 .no-attach{font-size:.78rem;color:var(--muted);}
 .attach-uploading{font-size:.78rem;color:var(--muted);font-style:italic;}
+.nr-file-row{display:flex;align-items:center;flex-wrap:wrap;gap:5px;padding:3px 0;}
+.btn-attach-sm{background:var(--accent-light);color:var(--accent);border:1px solid var(--accent);border-radius:4px;padding:2px 8px;font-size:.72rem;cursor:pointer;font-family:'Noto Sans SC',sans-serif;white-space:nowrap;}
+.btn-attach-sm:hover{background:#dfeeff;}
+.nr-file-preview{display:flex;flex-wrap:wrap;gap:4px;}
+.nr-file-tag{display:inline-flex;align-items:center;gap:3px;background:#f0f7ff;border:1px solid #aac8f0;border-radius:4px;padding:2px 6px;font-size:.7rem;color:var(--text);max-width:140px;}
+.nr-file-tag span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.nr-file-tag button{background:none;border:none;color:var(--red);cursor:pointer;font-size:.76rem;line-height:1;padding:0;flex-shrink:0;}
+.btn-bulk-del{background:var(--red)!important;}
+.btn-bulk-del:hover{opacity:.88;}
 .modal-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.4);z-index:300;align-items:center;justify-content:center;}
 .modal-box{background:white;border-radius:14px;padding:28px;width:100%;max-width:360px;box-shadow:0 4px 24px rgba(0,0,0,.15);}
 .modal-title{font-size:.95rem;font-weight:700;color:#1a2030;margin-bottom:18px;}
@@ -226,7 +235,9 @@ textarea.nr-inp{height:72px;resize:none;padding:6px 8px;line-height:1.5;vertical
     <input class="filter-input" type="date" id="filterDateTo" onchange="onFilterChange()"/>
     <span class="filter-label">搜索：</span>
     <input class="filter-input" type="text" id="filterKeyword" placeholder="关键词…" oninput="onFilterChange(true)"/>
-    <button class="btn-export" id="exportBtn" onclick="exportSelected()">导出</button>
+    <button class="btn-export" id="exportBtn" onclick="exportSelected()" disabled>导出选中</button>
+    <button class="btn-export" onclick="exportAll()">导出全部</button>
+    <button class="btn-export btn-bulk-del" id="bulkDelBtn" onclick="bulkDelete()" style="display:none">批量删除</button>
     <button class="btn-export" onclick="showTagManage()">标签分类</button>
     <button class="btn-add" onclick="addNewRow()">＋ 新增记录</button>
   </div>
@@ -306,6 +317,7 @@ let totalRecords = 0;
 let totalPages = 0;
 let currentFilters = { author: '', dateFrom: '', dateTo: '', keyword: '' };
 let debounceTimer = null;
+let pendingNewRowFiles = [];
 
 // ── Utilities ──────────────────────────────────────────────────────────────
 var _esc = document.createElement('div');
@@ -566,7 +578,11 @@ function renderTable() {
       '<td class="nc"><div class="nr-stack"><textarea class="nr-inp" id="nr_done" placeholder="今日完成..." onkeydown="_nrkd(event)"></textarea>' +
       '<div class="nr-tag-row"><select class="nr-tag name" id="nr_tag" onchange="_nrTagChange()"><option value="">不添加标签</option></select>' +
       '<input class="nr-tag" id="nr_tag_new" placeholder="新标签名…" style="display:none;flex:1" onkeydown="_nrTagConfirm(event)"/>' +
-      '<button class="btn-sv" id="nr_tag_btn" onclick="_nrTagConfirm(null)" style="display:none;padding:3px 7px">✓</button></div></div></td>' +
+      '<button class="btn-sv" id="nr_tag_btn" onclick="_nrTagConfirm(null)" style="display:none;padding:3px 7px">✓</button></div>' +
+      '<div class="nr-file-row"><label class="btn-attach-sm" for="nr_files">📎 附件</label>' +
+      '<input type="file" id="nr_files" multiple style="display:none" accept="image/jpeg,image/png,image/gif,image/webp,application/pdf" onchange="queueNewRowFiles(this)"/>' +
+      '<div id="nr_file_preview" class="nr-file-preview"></div></div>' +
+      '</div></td>' +
       '<td class="nc"><textarea class="nr-inp" id="nr_plan" placeholder="明日计划…" onkeydown="_nrkd(event)"></textarea></td>' +
       '<td class="nc"><textarea class="nr-inp" id="nr_problem" placeholder="遇到问题…" onkeydown="_nrkd(event)"></textarea></td>' +
       '<td class="nc"><textarea class="nr-inp" id="nr_thinking" placeholder="感悟思考…" onkeydown="_nrkd(event)"></textarea></td>' +
@@ -759,9 +775,11 @@ function startExpandEdit(el) {
 // ── Row Actions ────────────────────────────────────────────────────────────
 function addNewRow() {
   if (newRowActive) { const el = document.getElementById('nr_done'); if (el) el.focus(); return; }
-  newRowActive = true; renderTable();
+  pendingNewRowFiles = [];
+  newRowActive = true;
+  renderTable();
 }
-function cancelNewRow() { newRowActive = false; renderTable(); }
+function cancelNewRow() { newRowActive = false; pendingNewRowFiles = []; renderTable(); }
 
 async function saveNewRow() {
   const date = (document.getElementById('nr_date') || {}).value || '';
@@ -774,7 +792,25 @@ async function saveNewRow() {
   if (!date) { showToast('请选择日期'); return; }
   if (!done && !plan && !tagName) { showToast('请至少填写今日完成、明日计划或标签'); return; }
   const res = await fetch('/api/worklogs', { method: 'POST', headers: authHeaders(), body: JSON.stringify({ date, done, plan, problem, thinking, important, tagName }) });
-  if (res.ok) { newRowActive = false; showToast('提交成功 ✓'); await loadRecords(1); } else showToast('提交失败');
+  if (res.ok) {
+    const { id: newId } = await res.json();
+    newRowActive = false;
+    if (pendingNewRowFiles.length) {
+      showToast('上传附件中…');
+      await Promise.all(pendingNewRowFiles.map(f => {
+        const fd = new FormData();
+        fd.append('file', f);
+        return fetch('/api/worklogs/' + newId + '/attachments', {
+          method: 'POST',
+          headers: { 'Authorization': 'Bearer ' + localStorage.getItem('memory_token') },
+          body: fd
+        });
+      }));
+      pendingNewRowFiles = [];
+    }
+    showToast('提交成功 ✓');
+    await loadRecords(1);
+  } else showToast('提交失败');
 }
 
 async function delRecord(id) {
@@ -816,9 +852,11 @@ function syncSelectAllCheckbox() {
 }
 
 function updateExportButton() {
-  const btn = document.getElementById('exportBtn');
-  if (!btn) return;
-  btn.disabled = allRecords.filter(r => selectedIds.has(r.id)).length === 0;
+  const count = allRecords.filter(r => selectedIds.has(r.id)).length;
+  const exportBtn = document.getElementById('exportBtn');
+  const bulkBtn = document.getElementById('bulkDelBtn');
+  if (exportBtn) exportBtn.disabled = count === 0;
+  if (bulkBtn) bulkBtn.style.display = count > 0 ? 'inline-block' : 'none';
 }
 
 function escapeCSV(value) {
@@ -842,6 +880,73 @@ function exportSelected() {
   link.download = 'worklogs-' + today + '.csv';
   document.body.appendChild(link); link.click(); document.body.removeChild(link);
   URL.revokeObjectURL(link.href);
+}
+
+async function exportAll() {
+  const params = new URLSearchParams({ export: '1' });
+  if (currentFilters.author) params.set('author', currentFilters.author);
+  if (currentFilters.dateFrom) params.set('dateFrom', currentFilters.dateFrom);
+  if (currentFilters.dateTo) params.set('dateTo', currentFilters.dateTo);
+  if (currentFilters.keyword) params.set('keyword', currentFilters.keyword);
+  showToast('导出中…');
+  const res = await fetch('/api/worklogs?' + params, { headers: authHeaders() });
+  if (!res.ok) { showToast('导出失败'); return; }
+  const { results } = await res.json();
+  if (!results.length) { showToast('没有可导出的记录'); return; }
+  const header = ['Date', 'Done', 'Tag', 'Plan', 'Problem', 'Thinking', 'Important', 'Author'];
+  const lines = [header.map(escapeCSV).join(',')];
+  results.forEach(r => {
+    const p = getRecordTag(r) || {};
+    lines.push([r.date, r.done, p.name || '', r.plan, r.problem, r.thinking, r.important, r.author_name].map(escapeCSV).join(','));
+  });
+  const blob = new Blob(['﻿' + lines.join('\r\n')], { type: 'text/csv;charset=utf-8;' });
+  const link = document.createElement('a');
+  link.href = URL.createObjectURL(blob);
+  link.download = 'worklogs-all-' + new Date().toISOString().slice(0, 10) + '.csv';
+  document.body.appendChild(link); link.click(); document.body.removeChild(link);
+  URL.revokeObjectURL(link.href);
+  showToast('已导出 ' + results.length + ' 条记录');
+}
+
+async function bulkDelete() {
+  const ids = allRecords.filter(r => selectedIds.has(r.id)).map(r => r.id);
+  if (!ids.length) return;
+  if (!confirm('确定删除选中的 ' + ids.length + ' 条记录？附件也会一并删除，此操作不可撤销。')) return;
+  let failed = 0;
+  await Promise.all(ids.map(async id => {
+    const res = await fetch('/api/worklogs/' + id, { method: 'DELETE', headers: authHeaders() });
+    if (!res.ok) failed++;
+    else selectedIds.delete(id);
+  }));
+  if (failed) showToast(failed + ' 条删除失败');
+  else showToast('已删除 ' + ids.length + ' 条记录');
+  const newPage = allRecords.length === ids.length && currentPage > 1 ? currentPage - 1 : currentPage;
+  await loadRecords(newPage);
+}
+
+function queueNewRowFiles(input) {
+  const allowed = ['image/jpeg', 'image/png', 'image/gif', 'image/webp', 'application/pdf'];
+  for (const f of input.files) {
+    if (f.size > 5 * 1024 * 1024) { showToast(f.name + ' 超过5MB，已跳过'); continue; }
+    if (!allowed.includes(f.type)) { showToast(f.name + ' 格式不支持，已跳过'); continue; }
+    pendingNewRowFiles.push(f);
+  }
+  input.value = '';
+  renderNewRowFilePreview();
+}
+
+function renderNewRowFilePreview() {
+  const el = document.getElementById('nr_file_preview');
+  if (!el) return;
+  el.innerHTML = pendingNewRowFiles.map((f, i) =>
+    '<span class="nr-file-tag"><span>' + escapeHTML(f.name) + '</span>' +
+    '<button onclick="removeNewRowFile(' + i + ')">×</button></span>'
+  ).join('');
+}
+
+function removeNewRowFile(i) {
+  pendingNewRowFiles.splice(i, 1);
+  renderNewRowFilePreview();
 }
 
 // ── Expand / Comments ──────────────────────────────────────────────────────
