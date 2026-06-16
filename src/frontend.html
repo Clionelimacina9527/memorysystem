@@ -173,6 +173,10 @@ textarea.nr-inp{height:72px;resize:none;padding:6px 8px;line-height:1.5;vertical
 .modal-btns{display:flex;gap:8px;}
 .toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%) translateY(14px);background:#1a2030;color:white;padding:8px 20px;border-radius:18px;font-size:.8rem;opacity:0;transition:all .25s;z-index:999;white-space:nowrap;}
 .toast.show{opacity:1;transform:translateX(-50%) translateY(0);}
+.hl-mark{background:#fff1a8;color:inherit;border-radius:2px;padding:0 1px;}
+.today-banner{display:none;align-items:center;justify-content:space-between;gap:10px;background:#fff7e0;border-bottom:1px solid #f0d896;color:#7a5c00;font-size:.8rem;padding:8px 16px;}
+.today-banner.show{display:flex;}
+.today-banner-close{background:none;border:none;color:#7a5c00;font-size:1rem;cursor:pointer;line-height:1;padding:0 4px;}
 @media(max-width:768px){
   table{min-width:0;width:100%;}
   .th-select,.td-select,
@@ -225,6 +229,10 @@ textarea.nr-inp{height:72px;resize:none;padding:6px 8px;line-height:1.5;vertical
     <button class="btn-logout" id="adminBtn" onclick="showAdminPanel()" style="display:none">管理</button>
     <button class="btn-logout" onclick="showChangePwd()">改密码</button>
     <button class="btn-logout" onclick="doLogout()">退出</button>
+  </div>
+  <div class="today-banner" id="todayBanner">
+    <span>📝 你今天还没有提交工作记录，记得填写哦～</span>
+    <button class="today-banner-close" onclick="dismissTodayBanner()">&times;</button>
   </div>
   <div class="toolbar">
     <span class="filter-label">筛选成员：</span>
@@ -324,6 +332,13 @@ var _esc = document.createElement('div');
 function escapeHTML(s) { _esc.textContent = (s || ''); return _esc.innerHTML; }
 function displayText(s) { return (s || '').split(String.fromCharCode(10)).map(l => escapeHTML(l)).join('<br>'); }
 function firstLine(s) { return escapeHTML((s || '').split(String.fromCharCode(10))[0]); }
+function hl(escapedHtml) {
+  const kw = (currentFilters.keyword || '').trim();
+  if (!kw) return escapedHtml;
+  const escKw = escapeHTML(kw).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  if (!escKw) return escapedHtml;
+  return escapedHtml.replace(new RegExp(escKw, 'gi'), m => '<mark class="hl-mark">' + m + '</mark>');
+}
 
 function show(id) { document.getElementById(id).style.display = id === 'authScreen' ? 'flex' : 'block'; }
 function hide(id) { document.getElementById(id).style.display = 'none'; }
@@ -338,6 +353,22 @@ function authHeaders() {
   return { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + localStorage.getItem('memory_token') };
 }
 
+async function checkTodayBanner() {
+  if (!currentUser) return;
+  const today = new Date().toISOString().split('T')[0];
+  if (sessionStorage.getItem('memory_today_dismiss') === today) return;
+  const params = new URLSearchParams({ page: 1, pageSize: 1, author: currentUser.name, dateFrom: today, dateTo: today });
+  const res = await fetch('/api/worklogs?' + params, { headers: authHeaders() });
+  if (!res.ok) return;
+  const data = await res.json();
+  document.getElementById('todayBanner').classList.toggle('show', data.total === 0);
+}
+function dismissTodayBanner() {
+  const today = new Date().toISOString().split('T')[0];
+  sessionStorage.setItem('memory_today_dismiss', today);
+  document.getElementById('todayBanner').classList.remove('show');
+}
+
 // ── Init ───────────────────────────────────────────────────────────────────
 const saved = localStorage.getItem('memory_user');
 if (saved) {
@@ -346,6 +377,7 @@ if (saved) {
   document.getElementById('topUser').textContent = currentUser.name;
   if (currentUser.isAdmin) document.getElementById('adminBtn').style.display = 'inline-block';
   loadRecords(1);
+  checkTodayBanner();
 } else {
   hide('loadingScreen'); show('authScreen');
 }
@@ -373,6 +405,7 @@ async function doLogin() {
   document.getElementById('topUser').textContent = currentUser.name;
   if (currentUser.isAdmin) document.getElementById('adminBtn').style.display = 'inline-block';
   loadRecords(1);
+  checkTodayBanner();
 }
 
 async function doRegister() {
@@ -395,6 +428,7 @@ async function doRegister() {
   document.getElementById('topUser').textContent = currentUser.name;
   if (currentUser.isAdmin) document.getElementById('adminBtn').style.display = 'inline-block';
   loadRecords(1);
+  checkTodayBanner();
 }
 
 function doLogout() {
@@ -603,13 +637,13 @@ function renderTable() {
       rows.push(
         '<tr class="data-row" data-rid="' + r.id + '" onclick="toggleExpand(' + r.id + ')">' +
         '<td class="td-select" onclick="event.stopPropagation()"><input class="row-select" type="checkbox" data-id="' + r.id + '"' + (selectedIds.has(r.id) ? ' checked' : '') + '/></td>' +
-        '<td class="td-date' + ed + '" data-id="' + r.id + '" data-field="date">' + escapeHTML(r.date) + '</td>' +
-        '<td class="td-cell' + ed + '" data-id="' + r.id + '" data-field="done">' + tagBadge(r) + firstLine(r.done) + '</td>' +
-        '<td class="td-cell' + ed + '" data-id="' + r.id + '" data-field="plan">' + trunc(r.plan) + '</td>' +
-        '<td class="td-cell' + ed + '" data-id="' + r.id + '" data-field="problem">' + trunc(r.problem) + '</td>' +
-        '<td class="td-cell' + ed + '" data-id="' + r.id + '" data-field="thinking">' + trunc(r.thinking) + '</td>' +
-        '<td class="td-cell' + ed + '" data-id="' + r.id + '" data-field="important">' + trunc(r.important) + '</td>' +
-        '<td class="td-sub">' + escapeHTML(r.author_name) + '</td>' +
+        '<td class="td-date' + ed + '" data-id="' + r.id + '" data-field="date">' + hl(escapeHTML(r.date)) + '</td>' +
+        '<td class="td-cell' + ed + '" data-id="' + r.id + '" data-field="done">' + tagBadge(r) + hl(firstLine(r.done)) + '</td>' +
+        '<td class="td-cell' + ed + '" data-id="' + r.id + '" data-field="plan">' + hl(trunc(r.plan)) + '</td>' +
+        '<td class="td-cell' + ed + '" data-id="' + r.id + '" data-field="problem">' + hl(trunc(r.problem)) + '</td>' +
+        '<td class="td-cell' + ed + '" data-id="' + r.id + '" data-field="thinking">' + hl(trunc(r.thinking)) + '</td>' +
+        '<td class="td-cell' + ed + '" data-id="' + r.id + '" data-field="important">' + hl(trunc(r.important)) + '</td>' +
+        '<td class="td-sub">' + hl(escapeHTML(r.author_name)) + '</td>' +
         '<td class="td-act" onclick="event.stopPropagation()">' +
         '<button class="btn-comment" onclick="toggleExpand(' + r.id + ')">💬 ' + cnt + '</button>' +
         (canEdit ? '<button class="btn-del" onclick="delRecord(' + r.id + ')">删除</button>' : '') +
@@ -622,11 +656,11 @@ function renderTable() {
         (getRecordTag(r) ? '<button class="tag-chip" data-pid="' + (getRecordTag(r).id || '') + '" data-project="' + encodeURIComponent(getRecordTag(r).name) + '">查看时间树</button>' : '') +
         '</div>' +
         '<div class="expand-fields">' +
-        (r.done ? '<div class="ef-item"><span class="ef-label">今日完成</span><span class="ef-val' + (canEdit ? ' ef-editable" data-wid="' + r.id + '" data-field="done' : '') + '">' + displayText(r.done) + '</span></div>' : '') +
-        (r.plan ? '<div class="ef-item"><span class="ef-label">明日计划</span><span class="ef-val' + (canEdit ? ' ef-editable" data-wid="' + r.id + '" data-field="plan' : '') + '">' + displayText(r.plan) + '</span></div>' : '') +
-        (r.problem ? '<div class="ef-item"><span class="ef-label">遇到问题</span><span class="ef-val' + (canEdit ? ' ef-editable" data-wid="' + r.id + '" data-field="problem' : '') + '">' + displayText(r.problem) + '</span></div>' : '') +
-        (r.thinking ? '<div class="ef-item"><span class="ef-label">感悟思考</span><span class="ef-val' + (canEdit ? ' ef-editable" data-wid="' + r.id + '" data-field="thinking' : '') + '">' + displayText(r.thinking) + '</span></div>' : '') +
-        (r.important ? '<div class="ef-item"><span class="ef-label">重要备注</span><span class="ef-val' + (canEdit ? ' ef-editable" data-wid="' + r.id + '" data-field="important' : '') + '">' + displayText(r.important) + '</span></div>' : '') +
+        (r.done ? '<div class="ef-item"><span class="ef-label">今日完成</span><span class="ef-val' + (canEdit ? ' ef-editable" data-wid="' + r.id + '" data-field="done' : '') + '">' + hl(displayText(r.done)) + '</span></div>' : '') +
+        (r.plan ? '<div class="ef-item"><span class="ef-label">明日计划</span><span class="ef-val' + (canEdit ? ' ef-editable" data-wid="' + r.id + '" data-field="plan' : '') + '">' + hl(displayText(r.plan)) + '</span></div>' : '') +
+        (r.problem ? '<div class="ef-item"><span class="ef-label">遇到问题</span><span class="ef-val' + (canEdit ? ' ef-editable" data-wid="' + r.id + '" data-field="problem' : '') + '">' + hl(displayText(r.problem)) + '</span></div>' : '') +
+        (r.thinking ? '<div class="ef-item"><span class="ef-label">感悟思考</span><span class="ef-val' + (canEdit ? ' ef-editable" data-wid="' + r.id + '" data-field="thinking' : '') + '">' + hl(displayText(r.thinking)) + '</span></div>' : '') +
+        (r.important ? '<div class="ef-item"><span class="ef-label">重要备注</span><span class="ef-val' + (canEdit ? ' ef-editable" data-wid="' + r.id + '" data-field="important' : '') + '">' + hl(displayText(r.important)) + '</span></div>' : '') +
         '</div>' +
         '<div class="attach-section">' +
           '<div class="attach-header"><span class="ef-label">附件</span>' +
@@ -810,6 +844,7 @@ async function saveNewRow() {
     }
     showToast('提交成功 ✓');
     await loadRecords(1);
+    if (date === new Date().toISOString().split('T')[0]) document.getElementById('todayBanner').classList.remove('show');
   } else showToast('提交失败');
 }
 
