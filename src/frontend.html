@@ -174,6 +174,10 @@ textarea.nr-inp{height:72px;resize:none;padding:6px 8px;line-height:1.5;vertical
 .toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%) translateY(14px);background:#1a2030;color:white;padding:8px 20px;border-radius:18px;font-size:.8rem;opacity:0;transition:all .25s;z-index:999;white-space:nowrap;}
 .toast.show{opacity:1;transform:translateX(-50%) translateY(0);}
 .hl-mark{background:#fff1a8;color:inherit;border-radius:2px;padding:0 1px;}
+.stats-grid{display:flex;gap:10px;}
+.stats-item{flex:1;text-align:center;background:var(--accent-light);border-radius:10px;padding:14px 6px;}
+.stats-num{font-size:1.4rem;font-weight:700;color:var(--accent);}
+.stats-label{font-size:.72rem;color:var(--muted);margin-top:4px;}
 .today-banner{display:none;align-items:center;justify-content:space-between;gap:10px;background:#fff7e0;border-bottom:1px solid #f0d896;color:#7a5c00;font-size:.8rem;padding:8px 16px;}
 .today-banner.show{display:flex;}
 .today-banner-close{background:none;border:none;color:#7a5c00;font-size:1rem;cursor:pointer;line-height:1;padding:0 4px;}
@@ -226,6 +230,7 @@ textarea.nr-inp{height:72px;resize:none;padding:6px 8px;line-height:1.5;vertical
     <div class="topbar-title">🧠 个人数字记忆系统</div>
     <div class="topbar-user" id="topUser"></div>
     <button class="btn-notif" id="notifBtn" onclick="toggleNotif()">🔔 <span class="notif-badge" id="notifCount">0</span></button>
+    <button class="btn-logout" onclick="showStatsPanel()">📊 我的统计</button>
     <button class="btn-logout" id="adminBtn" onclick="showAdminPanel()" style="display:none">管理</button>
     <button class="btn-logout" onclick="showChangePwd()">改密码</button>
     <button class="btn-logout" onclick="doLogout()">退出</button>
@@ -241,6 +246,8 @@ textarea.nr-inp{height:72px;resize:none;padding:6px 8px;line-height:1.5;vertical
     <input class="filter-input" type="date" id="filterDateFrom" onchange="onFilterChange()"/>
     <span class="filter-label">到：</span>
     <input class="filter-input" type="date" id="filterDateTo" onchange="onFilterChange()"/>
+    <span class="filter-label">标签：</span>
+    <select class="filter-select" id="filterTag" onchange="onFilterChange()"><option value="">全部标签</option></select>
     <span class="filter-label">搜索：</span>
     <input class="filter-input" type="text" id="filterKeyword" placeholder="关键词…" oninput="onFilterChange(true)"/>
     <button class="btn-export" id="exportBtn" onclick="exportSelected()" disabled>导出选中</button>
@@ -296,6 +303,19 @@ textarea.nr-inp{height:72px;resize:none;padding:6px 8px;line-height:1.5;vertical
     </div>
   </div>
 </div>
+<div class="modal-overlay" id="statsModal">
+  <div class="modal-box" style="max-width:340px;">
+    <div class="modal-title">我的统计</div>
+    <div class="stats-grid" id="statsGrid">
+      <div class="stats-item"><div class="stats-num" id="stat_total">–</div><div class="stats-label">总记录数</div></div>
+      <div class="stats-item"><div class="stats-num" id="stat_month">–</div><div class="stats-label">本月记录</div></div>
+      <div class="stats-item"><div class="stats-num" id="stat_streak">–</div><div class="stats-label">连续天数</div></div>
+    </div>
+    <div class="modal-btns" style="margin-top:18px;">
+      <button class="btn-logout" style="flex:1;padding:11px" onclick="hideStatsPanel()">关闭</button>
+    </div>
+  </div>
+</div>
 <div class="modal-overlay" id="pwdModal">
   <div class="modal-box">
     <div class="modal-title">修改密码</div>
@@ -323,7 +343,7 @@ let resetTargetId = null;
 let currentPage = 1;
 let totalRecords = 0;
 let totalPages = 0;
-let currentFilters = { author: '', dateFrom: '', dateTo: '', keyword: '' };
+let currentFilters = { author: '', dateFrom: '', dateTo: '', tag: '', keyword: '' };
 let debounceTimer = null;
 let pendingNewRowFiles = [];
 
@@ -446,6 +466,7 @@ async function loadRecords(page) {
   if (currentFilters.author) params.set('author', currentFilters.author);
   if (currentFilters.dateFrom) params.set('dateFrom', currentFilters.dateFrom);
   if (currentFilters.dateTo) params.set('dateTo', currentFilters.dateTo);
+  if (currentFilters.tag) params.set('tag', currentFilters.tag);
   if (currentFilters.keyword) params.set('keyword', currentFilters.keyword);
 
   const res = await fetch('/api/worklogs?' + params, { headers: authHeaders() });
@@ -461,6 +482,7 @@ async function loadRecords(page) {
 
   await loadTags();
   updateMemberDropdown(data.authors || []);
+  updateTagFilterDropdown();
   renderTable();
   renderPagination();
   checkNotifications();
@@ -478,6 +500,7 @@ function readFilters() {
     author: document.getElementById('filterUser').value,
     dateFrom: document.getElementById('filterDateFrom').value,
     dateTo: document.getElementById('filterDateTo').value,
+    tag: document.getElementById('filterTag').value,
     keyword: document.getElementById('filterKeyword').value,
   };
 }
@@ -515,6 +538,13 @@ function updateMemberDropdown(authors) {
   const cur = currentFilters.author;
   sel.innerHTML = '<option value="">全部成员</option>' +
     authors.map(n => '<option value="' + escapeHTML(n) + '"' + (n === cur ? ' selected' : '') + '>' + escapeHTML(n) + '</option>').join('');
+}
+
+function updateTagFilterDropdown() {
+  const sel = document.getElementById('filterTag');
+  const cur = currentFilters.tag;
+  sel.innerHTML = '<option value="">全部标签</option>' +
+    (allTags || []).map(t => '<option value="' + escapeHTML(t.name) + '"' + (t.name === cur ? ' selected' : '') + '>' + escapeHTML(t.name) + '</option>').join('');
 }
 
 // ── Tags UI ────────────────────────────────────────────────────────────────
@@ -922,6 +952,7 @@ async function exportAll() {
   if (currentFilters.author) params.set('author', currentFilters.author);
   if (currentFilters.dateFrom) params.set('dateFrom', currentFilters.dateFrom);
   if (currentFilters.dateTo) params.set('dateTo', currentFilters.dateTo);
+  if (currentFilters.tag) params.set('tag', currentFilters.tag);
   if (currentFilters.keyword) params.set('keyword', currentFilters.keyword);
   showToast('导出中…');
   const res = await fetch('/api/worklogs?' + params, { headers: authHeaders() });
@@ -1252,6 +1283,21 @@ async function showTagByName(name) {
 }
 
 function hideTagModal() { hideModal('tagModal'); }
+
+// ── Stats ──────────────────────────────────────────────────────────────────
+async function showStatsPanel() {
+  showModal('statsModal');
+  document.getElementById('stat_total').textContent = '–';
+  document.getElementById('stat_month').textContent = '–';
+  document.getElementById('stat_streak').textContent = '–';
+  const res = await fetch('/api/my-stats', { headers: authHeaders() });
+  if (!res.ok) return;
+  const data = await res.json();
+  document.getElementById('stat_total').textContent = data.total;
+  document.getElementById('stat_month').textContent = data.month;
+  document.getElementById('stat_streak').textContent = data.streak;
+}
+function hideStatsPanel() { hideModal('statsModal'); }
 
 // ── Admin ──────────────────────────────────────────────────────────────────
 async function showAdminPanel() {

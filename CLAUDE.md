@@ -27,6 +27,8 @@ npx wrangler secret put ADMIN_EMAIL
 npx wrangler secret put FEISHU_HOOK
 ```
 
+For `wrangler dev` to work locally (auth, invite code, etc.), create a git-ignored `.dev.vars` file with the same five keys set to any test values.
+
 ## Source structure
 
 ```

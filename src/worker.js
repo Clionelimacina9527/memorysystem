@@ -242,6 +242,7 @@ export default {
       const author = url.searchParams.get("author") || "";
       const dateFrom = url.searchParams.get("dateFrom") || "";
       const dateTo = url.searchParams.get("dateTo") || "";
+      const tag = url.searchParams.get("tag") || "";
       const keyword = (url.searchParams.get("keyword") || "").trim();
 
       const conditions = [];
@@ -249,6 +250,7 @@ export default {
       if (author) { conditions.push("w.author_name = ?"); params.push(author); }
       if (dateFrom) { conditions.push("w.date >= ?"); params.push(dateFrom); }
       if (dateTo) { conditions.push("w.date <= ?"); params.push(dateTo); }
+      if (tag) { conditions.push("p.name = ?"); params.push(tag); }
       if (keyword) {
         const kw = `%${keyword}%`;
         conditions.push("(w.done LIKE ? OR w.plan LIKE ? OR w.problem LIKE ? OR w.thinking LIKE ? OR w.important LIKE ? OR w.author_name LIKE ? OR p.name LIKE ? OR w.date LIKE ?)");
@@ -286,6 +288,22 @@ export default {
       ).bind(date, done || "", plan || "", problem || "", thinking || "", important || "", user.id, user.name).run();
       await setWorklogTag(env.DB, r.meta.last_row_id, tagName || "", user);
       return json({ id: r.meta.last_row_id });
+    }
+
+    // --- Personal stats ---
+    if (path === "/api/my-stats" && method === "GET") {
+      const totalRow = await env.DB.prepare("SELECT COUNT(*) as cnt FROM worklogs WHERE author_id=?").bind(user.id).first();
+      const monthRow = await env.DB.prepare(
+        "SELECT COUNT(*) as cnt FROM worklogs WHERE author_id=? AND strftime('%Y-%m', date) = strftime('%Y-%m','now')"
+      ).bind(user.id).first();
+      const dateRows = await env.DB.prepare("SELECT DISTINCT date FROM worklogs WHERE author_id=? ORDER BY date DESC").bind(user.id).all();
+      const dateSet = new Set(dateRows.results.map(r => r.date));
+      const toDateStr = d => d.toISOString().split("T")[0];
+      const cursor = new Date();
+      if (!dateSet.has(toDateStr(cursor))) cursor.setUTCDate(cursor.getUTCDate() - 1);
+      let streak = 0;
+      while (dateSet.has(toDateStr(cursor))) { streak++; cursor.setUTCDate(cursor.getUTCDate() - 1); }
+      return json({ total: totalRow?.cnt || 0, month: monthRow?.cnt || 0, streak });
     }
 
     // --- Tags ---
