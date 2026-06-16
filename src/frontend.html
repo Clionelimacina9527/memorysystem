@@ -103,8 +103,11 @@ textarea.nr-inp{height:72px;resize:none;padding:6px 8px;line-height:1.5;vertical
 .tag-note{font-size:.78rem;color:var(--muted);line-height:1.5;white-space:pre-wrap;}
 .tag-manage-row{display:flex;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid var(--border);}
 .tag-manage-row input{flex:1;border:1px solid var(--border);border-radius:5px;padding:6px 8px;font-size:.8rem;font-family:'Noto Sans SC',sans-serif;}
+.tag-manage-row.tag-manage-child{padding-left:22px;}
+.tag-manage-row.tag-manage-child::before{content:'└';color:var(--muted);margin-right:-2px;}
 .tag-manage-actions{display:flex;gap:5px;}
 .tag-manage-empty{padding:18px 0;color:var(--muted);font-size:.82rem;text-align:center;}
+.tag-parent-select{border:1px solid var(--border);border-radius:5px;padding:6px 8px;font-size:.78rem;font-family:'Noto Sans SC',sans-serif;max-width:120px;}
 .tag-edit-row{display:flex;align-items:center;gap:8px;margin-bottom:12px;}
 .tag-edit-row label{font-size:.74rem;color:var(--muted);font-weight:600;}
 .tag-edit-select{border:1px solid var(--border);border-radius:5px;padding:5px 8px;font-size:.78rem;font-family:'Noto Sans SC',sans-serif;min-width:180px;background:white;color:var(--text);}
@@ -282,7 +285,7 @@ textarea.nr-inp{height:72px;resize:none;padding:6px 8px;line-height:1.5;vertical
 <div class="modal-overlay" id="tagManageModal">
   <div class="modal-box tag-modal">
     <div class="tag-head"><div class="modal-title" style="margin-bottom:0">标签分类</div><button class="btn-logout" onclick="hideTagManage()">关闭</button></div>
-    <div class="field" style="margin-bottom:12px;"><label>标签名</label><div style="display:flex;gap:8px;"><input id="newTagName" placeholder="标签名"/><button class="btn-auth" style="padding:8px 14px" onclick="addTag()">添加</button></div></div>
+    <div class="field" style="margin-bottom:12px;"><label>标签名</label><div style="display:flex;gap:8px;"><input id="newTagName" placeholder="标签名"/><select id="newTagParent" class="tag-parent-select"></select><button class="btn-auth" style="padding:8px 14px" onclick="addTag()">添加</button></div></div>
     <div id="tagManageList"></div>
   </div>
 </div>
@@ -553,8 +556,7 @@ function updateMemberDropdown(authors) {
 function updateTagFilterDropdown() {
   const sel = document.getElementById('filterTag');
   const cur = currentFilters.tag;
-  sel.innerHTML = '<option value="">全部标签</option>' +
-    (allTags || []).map(t => '<option value="' + escapeHTML(t.name) + '"' + (t.name === cur ? ' selected' : '') + '>' + escapeHTML(t.name) + '</option>').join('');
+  sel.innerHTML = '<option value="">全部标签</option>' + groupedTagOptionsHtml(cur);
 }
 
 // ── Tags UI ────────────────────────────────────────────────────────────────
@@ -563,9 +565,33 @@ function getRecordTag(r) {
   return null;
 }
 
+// Renders top-level tags as flat <option>s, or as an <optgroup> with the
+// parent itself plus its children when it has any — tags are 2 levels max.
+function groupedTagOptionsHtml(selected) {
+  const top = (allTags || []).filter(t => !t.parent_id);
+  const childrenOf = pid => (allTags || []).filter(t => t.parent_id === pid);
+  return top.map(t => {
+    const kids = childrenOf(t.id);
+    const opt = (name) => '<option value="' + escapeHTML(name) + '"' + (name === selected ? ' selected' : '') + '>';
+    if (!kids.length) return opt(t.name) + escapeHTML(t.name) + '</option>';
+    return '<optgroup label="' + escapeHTML(t.name) + '">' +
+      opt(t.name) + escapeHTML(t.name) + '（不分类）</option>' +
+      kids.map(k => opt(k.name) + escapeHTML(k.name) + '</option>').join('') +
+      '</optgroup>';
+  }).join('');
+}
+
+// Top-level tags only, for choosing a parent in tag management (max depth 2).
+function topLevelParentOptionsHtml(selectedId, excludeId) {
+  return '<option value="">无（设为一级标签）</option>' +
+    (allTags || []).filter(t => !t.parent_id && t.id !== excludeId).map(t =>
+      '<option value="' + t.id + '"' + (t.id === selectedId ? ' selected' : '') + '>' + escapeHTML(t.name) + '</option>'
+    ).join('');
+}
+
 function tagOptionsHtml(selected, allowNew) {
   return '<option value="">不添加标签</option>' +
-    (allTags || []).map(t => '<option value="' + escapeHTML(t.name) + '"' + (t.name === selected ? ' selected' : '') + '>' + escapeHTML(t.name) + '</option>').join('') +
+    groupedTagOptionsHtml(selected) +
     (allowNew ? '<option value="__new__">＋ 新建标签…</option>' : '');
 }
 
@@ -1302,13 +1328,19 @@ document.addEventListener('click', e => {
 // ── Tag Management ─────────────────────────────────────────────────────────
 function renderTagManage() {
   const list = document.getElementById('tagManageList');
+  const newParentSel = document.getElementById('newTagParent');
+  if (newParentSel) newParentSel.innerHTML = topLevelParentOptionsHtml(null, null);
   if (!list) return;
   if (!allTags.length) { list.innerHTML = '<div class="tag-manage-empty">暂无标签</div>'; return; }
-  list.innerHTML = allTags.map(t =>
-    '<div class="tag-manage-row"><input id="tag_edit_' + t.id + '" value="' + escapeHTML(t.name) + '"/>' +
+  const top = allTags.filter(t => !t.parent_id);
+  const childrenOf = pid => allTags.filter(t => t.parent_id === pid);
+  const row = (t, isChild) =>
+    '<div class="tag-manage-row' + (isChild ? ' tag-manage-child' : '') + '">' +
+    '<input id="tag_edit_' + t.id + '" value="' + escapeHTML(t.name) + '"/>' +
+    '<select id="tag_parent_' + t.id + '" class="tag-parent-select">' + topLevelParentOptionsHtml(t.parent_id || null, t.id) + '</select>' +
     '<div class="tag-manage-actions"><button class="btn-sv" onclick="renameTag(' + t.id + ')">保存</button>' +
-    '<button class="btn-del" onclick="deleteTag(' + t.id + ')">删除</button></div></div>'
-  ).join('');
+    '<button class="btn-del" onclick="deleteTag(' + t.id + ')">删除</button></div></div>';
+  list.innerHTML = top.map(p => row(p, false) + childrenOf(p.id).map(c => row(c, true)).join('')).join('');
 }
 
 async function showTagManage() { showModal('tagManageModal'); await loadTags(); renderTagManage(); }
@@ -1316,30 +1348,35 @@ function hideTagManage() { hideModal('tagManageModal'); }
 
 async function addTag() {
   const input = document.getElementById('newTagName');
+  const parentSel = document.getElementById('newTagParent');
   const name = (input && input.value || '').trim();
   if (!name) { showToast('标签名不能为空'); return; }
-  const res = await fetch('/api/tags', { method: 'POST', headers: authHeaders(), body: JSON.stringify({ name }) });
+  const parentId = parentSel && parentSel.value ? parseInt(parentSel.value) : null;
+  const res = await fetch('/api/tags', { method: 'POST', headers: authHeaders(), body: JSON.stringify({ name, parentId }) });
   const data = await res.json();
   if (!res.ok) { showToast(data.error || '添加失败'); return; }
   input.value = '';
+  if (parentSel) parentSel.value = '';
   await loadTags(); renderTagManage(); renderTable();
 }
 
 async function renameTag(id) {
   const input = document.getElementById('tag_edit_' + id);
+  const parentSel = document.getElementById('tag_parent_' + id);
   const name = (input && input.value || '').trim();
   if (!name) { showToast('标签名不能为空'); return; }
-  const res = await fetch('/api/tags/' + id, { method: 'PUT', headers: authHeaders(), body: JSON.stringify({ name }) });
+  const parentId = parentSel && parentSel.value ? parseInt(parentSel.value) : null;
+  const res = await fetch('/api/tags/' + id, { method: 'PUT', headers: authHeaders(), body: JSON.stringify({ name, parentId }) });
   const data = await res.json();
   if (!res.ok) { showToast(data.error || '保存失败'); return; }
-  await loadRecords(currentPage); renderTagManage();
+  await loadTags(); await loadRecords(currentPage); renderTagManage();
 }
 
 async function deleteTag(id) {
-  if (!confirm('确定删除这个标签？相关记录会取消标签关联')) return;
+  if (!confirm('确定删除这个标签？相关记录会取消标签关联，若有子标签会变为一级标签')) return;
   const res = await fetch('/api/tags/' + id, { method: 'DELETE', headers: authHeaders() });
   if (!res.ok) { showToast('删除失败'); return; }
-  await loadRecords(currentPage); renderTagManage();
+  await loadTags(); await loadRecords(currentPage); renderTagManage();
 }
 
 async function showTagByName(name) {

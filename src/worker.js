@@ -69,6 +69,20 @@ async function recordLoginFailure(db, email, ip) {
   await db.prepare("DELETE FROM login_attempts WHERE attempted_at < ?").bind(Math.floor(Date.now() / 1000) - 3600).run();
 }
 
+// Resolves and validates a candidate parent tag id (max 2 levels deep, no cycles).
+async function resolveParentId(db, parentId, selfId) {
+  if (!parentId) return null;
+  if (selfId && parentId === selfId) throw new Error("不能将自己设为父标签");
+  const parent = await db.prepare("SELECT id, parent_id FROM projects WHERE id=?").bind(parentId).first();
+  if (!parent) throw new Error("父标签不存在");
+  if (parent.parent_id) throw new Error("最多支持二级标签，请选择一级标签作为父标签");
+  if (selfId) {
+    const childCount = await db.prepare("SELECT COUNT(*) as cnt FROM projects WHERE parent_id=?").bind(selfId).first();
+    if (childCount?.cnt) throw new Error("该标签下还有子标签，无法再设置父标签");
+  }
+  return parentId;
+}
+
 async function setWorklogTag(db, worklogId, tagName, user) {
   await db.prepare("DELETE FROM project_entries WHERE worklog_id=?").bind(worklogId).run();
   const name = (tagName || "").trim();
@@ -118,9 +132,13 @@ async function initDB(db) {
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     name TEXT UNIQUE NOT NULL,
     author_id INTEGER NOT NULL,
+    parent_id INTEGER,
     created_at INTEGER DEFAULT (strftime('%s','now')),
-    FOREIGN KEY(author_id) REFERENCES users(id)
+    FOREIGN KEY(author_id) REFERENCES users(id),
+    FOREIGN KEY(parent_id) REFERENCES projects(id)
   )`).run();
+  // Migrate existing tables that may not have parent_id
+  await db.prepare("ALTER TABLE projects ADD COLUMN parent_id INTEGER REFERENCES projects(id)").run().catch(() => {});
   await db.prepare(`CREATE TABLE IF NOT EXISTS project_entries (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     worklog_id INTEGER NOT NULL,
@@ -250,7 +268,17 @@ export default {
       if (author) { conditions.push("w.author_name = ?"); params.push(author); }
       if (dateFrom) { conditions.push("w.date >= ?"); params.push(dateFrom); }
       if (dateTo) { conditions.push("w.date <= ?"); params.push(dateTo); }
-      if (tag) { conditions.push("p.name = ?"); params.push(tag); }
+      if (tag) {
+        const tagRow = await env.DB.prepare("SELECT id FROM projects WHERE name=?").bind(tag).first();
+        if (tagRow) {
+          const childRows = await env.DB.prepare("SELECT id FROM projects WHERE parent_id=?").bind(tagRow.id).all();
+          const tagIds = [tagRow.id, ...childRows.results.map(r => r.id)];
+          conditions.push(`p.id IN (${tagIds.map(() => "?").join(",")})`);
+          params.push(...tagIds);
+        } else {
+          conditions.push("1=0");
+        }
+      }
       if (keyword) {
         const kw = `%${keyword}%`;
         conditions.push("(w.done LIKE ? OR w.plan LIKE ? OR w.problem LIKE ? OR w.thinking LIKE ? OR w.important LIKE ? OR w.author_name LIKE ? OR p.name LIKE ? OR w.date LIKE ?)");
@@ -309,21 +337,28 @@ export default {
     // --- Tags ---
     if ((path === "/api/projects" || path === "/api/tags") && method === "GET") {
       const rows = await env.DB.prepare(
-        "SELECT p.id, p.name, COUNT(pe.id) as entry_count, " +
+        "SELECT p.id, p.name, p.parent_id, par.name as parent_name, COUNT(pe.id) as entry_count, " +
         "(SELECT pe2.progress FROM project_entries pe2 JOIN worklogs w2 ON w2.id=pe2.worklog_id WHERE pe2.project_id=p.id ORDER BY w2.date DESC, pe2.created_at DESC LIMIT 1) as latest_progress, " +
         "(SELECT w2.date FROM project_entries pe2 JOIN worklogs w2 ON w2.id=pe2.worklog_id WHERE pe2.project_id=p.id ORDER BY w2.date DESC, pe2.created_at DESC LIMIT 1) as latest_date " +
-        "FROM projects p LEFT JOIN project_entries pe ON pe.project_id=p.id GROUP BY p.id, p.name ORDER BY latest_date DESC, p.created_at DESC"
+        "FROM projects p LEFT JOIN project_entries pe ON pe.project_id=p.id LEFT JOIN projects par ON par.id=p.parent_id " +
+        "GROUP BY p.id, p.name ORDER BY latest_date DESC, p.created_at DESC"
       ).all();
       return json(rows.results);
     }
 
     if (path === "/api/tags" && method === "POST") {
-      const { name } = await req.json();
+      const { name, parentId } = await req.json();
       const tagName = (name || "").trim();
       if (!tagName) return json({ error: "标签名不能为空" }, 400);
+      let pid;
       try {
-        const r = await env.DB.prepare("INSERT INTO projects(name,author_id) VALUES(?,?)").bind(tagName, user.id).run();
-        return json({ id: r.meta.last_row_id, name: tagName });
+        pid = await resolveParentId(env.DB, parentId ? parseInt(parentId) : null, null);
+      } catch (e) {
+        return json({ error: e.message }, 400);
+      }
+      try {
+        const r = await env.DB.prepare("INSERT INTO projects(name,author_id,parent_id) VALUES(?,?,?)").bind(tagName, user.id, pid).run();
+        return json({ id: r.meta.last_row_id, name: tagName, parent_id: pid });
       } catch {
         return json({ error: "标签已存在" }, 400);
       }
@@ -333,17 +368,24 @@ export default {
     if (tagMatch) {
       const tid = parseInt(tagMatch[1]);
       if (method === "PUT") {
-        const { name } = await req.json();
+        const { name, parentId } = await req.json();
         const tagName = (name || "").trim();
         if (!tagName) return json({ error: "标签名不能为空" }, 400);
+        let pid;
         try {
-          await env.DB.prepare("UPDATE projects SET name=? WHERE id=?").bind(tagName, tid).run();
+          pid = await resolveParentId(env.DB, parentId ? parseInt(parentId) : null, tid);
+        } catch (e) {
+          return json({ error: e.message }, 400);
+        }
+        try {
+          await env.DB.prepare("UPDATE projects SET name=?, parent_id=? WHERE id=?").bind(tagName, pid, tid).run();
           return json({ ok: true });
         } catch {
           return json({ error: "标签已存在" }, 400);
         }
       }
       if (method === "DELETE") {
+        await env.DB.prepare("UPDATE projects SET parent_id=NULL WHERE parent_id=?").bind(tid).run();
         await env.DB.prepare("DELETE FROM project_entries WHERE project_id=?").bind(tid).run();
         await env.DB.prepare("DELETE FROM projects WHERE id=?").bind(tid).run();
         return json({ ok: true });
@@ -355,8 +397,10 @@ export default {
       const pid = parseInt(projectEntriesMatch[1]);
       const rows = await env.DB.prepare(
         "SELECT pe.id, pe.progress, w.id as worklog_id, w.date, w.done, w.plan, w.problem, w.thinking, w.important, w.author_name " +
-        "FROM project_entries pe JOIN worklogs w ON w.id=pe.worklog_id WHERE pe.project_id=? ORDER BY w.date DESC, pe.created_at DESC"
-      ).bind(pid).all();
+        "FROM project_entries pe JOIN worklogs w ON w.id=pe.worklog_id " +
+        "WHERE pe.project_id=? OR pe.project_id IN (SELECT id FROM projects WHERE parent_id=?) " +
+        "ORDER BY w.date DESC, pe.created_at DESC"
+      ).bind(pid, pid).all();
       return json(rows.results);
     }
 

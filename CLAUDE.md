@@ -65,7 +65,7 @@ JWT-based: HMAC-SHA256, 7-day expiry. `signJWT`/`verifyJWT` use Web Crypto direc
 |-------|---------|
 | `users` | Registered users — has `notif_last_seen INTEGER` column for notification read state |
 | `worklogs` | Daily work records (done/plan/problem/thinking/important fields) |
-| `projects` | Tags (UI calls them "标签", DB table is `projects`) |
+| `projects` | Tags (UI calls them "标签", DB table is `projects`) — `parent_id` supports one level of nesting (see Tag hierarchy below) |
 | `project_entries` | Join table linking worklogs to a tag — one tag per worklog in practice |
 | `comments` | Comments on worklogs |
 | `login_attempts` | Rate limiting |
@@ -117,6 +117,16 @@ While the new-row form is open, every field's `oninput`/`onchange` calls `onDraf
 ### Tag filter
 
 `#filterTag` in the toolbar is a third filter dimension alongside author/date range/keyword (see Pagination above). `updateTagFilterDropdown()` rebuilds its `<option>` list from `allTags` after each `loadRecords()`, preserving the current selection.
+
+### Tag hierarchy (parent/child, max 2 levels)
+
+`projects.parent_id` (nullable, self-referencing) lets a tag have one level of children — e.g. a parent tag "English" with children "Listening"/"Grammar". `resolveParentId()` in `worker.js` enforces: no self-parenting, no 3-level nesting (a tag with a `parent_id` can't itself be chosen as a parent), and a tag with existing children can't be given a parent. Deleting a parent tag sets its children's `parent_id` to `NULL` (they become top-level) rather than cascading the delete.
+
+- Filtering/exporting by a **parent** tag name matches that tag *and all its children* (`GET /api/worklogs?tag=`, resolved server-side to a list of project ids before the `WHERE p.id IN (...)` clause).
+- The tag's time-tree (`GET /api/tags/{id}/entries`, opened via a tag chip → `showTagByName()`) likewise rolls up children's entries when viewing a parent.
+- Tag-assignment `<select>`s (`#nr_tag`, `.record-tag-select`, `#filterTag`) render via `groupedTagOptionsHtml()`: a top-level tag with children becomes an `<optgroup>` containing the parent itself (as a "no sub-category" option) plus each child; childless top-level tags stay flat options.
+- The standalone tag manager (「标签分类」 modal, `renderTagManage()`) shows each top-level tag followed by its indented children, each row with its own parent-reassignment `<select>` (`topLevelParentOptionsHtml()`, top-level tags only — depth is capped at 2).
+- The quick inline "+ 新建标签…" creator inside the new-row form (`_nrTagConfirm()`) always creates a top-level tag; assigning a parent requires the full 「标签分类」 modal.
 
 ### Today reminder banner
 
