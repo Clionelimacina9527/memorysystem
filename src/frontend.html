@@ -93,7 +93,7 @@ textarea.nr-inp{height:72px;resize:none;padding:6px 8px;line-height:1.5;vertical
 .nr-tag.name{flex:1;}
 .tag-summary{display:inline-flex;align-items:center;gap:8px;border:1px solid #b9d2ff;background:#eef5ff;color:#2258c8;border-radius:6px;padding:6px 10px;margin-bottom:12px;cursor:pointer;font-size:.8rem;}
 .tag-summary:hover{background:#dfeeff;}
-.tag-modal{max-width:520px;max-height:80vh;overflow-y:auto;}
+.tag-modal{width:92vw;max-width:600px;max-height:80vh;overflow-y:auto;}
 .tag-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;}
 .tag-meta{font-size:.78rem;color:var(--muted);margin-bottom:12px;}
 .tag-timeline{display:flex;flex-direction:column;gap:8px;}
@@ -102,12 +102,12 @@ textarea.nr-inp{height:72px;resize:none;padding:6px 8px;line-height:1.5;vertical
 .tag-title{font-size:.82rem;font-weight:600;color:var(--text);margin-bottom:2px;}
 .tag-note{font-size:.78rem;color:var(--muted);line-height:1.5;white-space:pre-wrap;}
 .tag-manage-row{display:flex;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid var(--border);}
-.tag-manage-row input{flex:1;border:1px solid var(--border);border-radius:5px;padding:6px 8px;font-size:.8rem;font-family:'Noto Sans SC',sans-serif;}
+.tag-manage-row input{flex:1;min-width:0;border:1px solid var(--border);border-radius:5px;padding:6px 8px;font-size:.8rem;font-family:'Noto Sans SC',sans-serif;}
 .tag-manage-row.tag-manage-child{padding-left:22px;}
 .tag-manage-row.tag-manage-child::before{content:'└';color:var(--muted);margin-right:-2px;}
-.tag-manage-actions{display:flex;gap:5px;}
+.tag-manage-actions{display:flex;gap:5px;flex-shrink:0;}
 .tag-manage-empty{padding:18px 0;color:var(--muted);font-size:.82rem;text-align:center;}
-.tag-parent-select{border:1px solid var(--border);border-radius:5px;padding:6px 8px;font-size:.78rem;font-family:'Noto Sans SC',sans-serif;max-width:120px;}
+.tag-parent-select{border:1px solid var(--border);border-radius:5px;padding:6px 8px;font-size:.78rem;font-family:'Noto Sans SC',sans-serif;width:118px;min-width:0;flex-shrink:0;overflow:hidden;text-overflow:ellipsis;}
 .tag-edit-row{display:flex;align-items:center;gap:8px;margin-bottom:12px;}
 .tag-edit-row label{font-size:.74rem;color:var(--muted);font-weight:600;}
 .tag-edit-select{border:1px solid var(--border);border-radius:5px;padding:5px 8px;font-size:.78rem;font-family:'Noto Sans SC',sans-serif;min-width:180px;background:white;color:var(--text);}
@@ -285,7 +285,7 @@ textarea.nr-inp{height:72px;resize:none;padding:6px 8px;line-height:1.5;vertical
 <div class="modal-overlay" id="tagManageModal">
   <div class="modal-box tag-modal">
     <div class="tag-head"><div class="modal-title" style="margin-bottom:0">标签分类</div><button class="btn-logout" onclick="hideTagManage()">关闭</button></div>
-    <div class="field" style="margin-bottom:12px;"><label>标签名</label><div style="display:flex;gap:8px;"><input id="newTagName" placeholder="标签名"/><select id="newTagParent" class="tag-parent-select"></select><button class="btn-auth" style="padding:8px 14px" onclick="addTag()">添加</button></div></div>
+    <div class="field" style="margin-bottom:12px;"><label>标签名</label><div style="display:flex;gap:8px;"><input id="newTagName" placeholder="标签名" style="flex:1;min-width:0;"/><select id="newTagParent" class="tag-parent-select"></select><button class="btn-auth" style="padding:8px 14px;flex-shrink:0;" onclick="addTag()">添加</button></div></div>
     <div id="tagManageList"></div>
   </div>
 </div>
