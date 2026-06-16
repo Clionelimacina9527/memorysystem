@@ -173,6 +173,10 @@ textarea.nr-inp{height:72px;resize:none;padding:6px 8px;line-height:1.5;vertical
 .modal-btns{display:flex;gap:8px;}
 .toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%) translateY(14px);background:#1a2030;color:white;padding:8px 20px;border-radius:18px;font-size:.8rem;opacity:0;transition:all .25s;z-index:999;white-space:nowrap;}
 .toast.show{opacity:1;transform:translateX(-50%) translateY(0);}
+.undo-toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%) translateY(14px);background:#1a2030;color:white;padding:8px 10px 8px 20px;border-radius:18px;font-size:.8rem;opacity:0;transition:all .25s;z-index:1000;white-space:nowrap;display:flex;align-items:center;gap:12px;pointer-events:none;}
+.undo-toast.show{opacity:1;transform:translateX(-50%) translateY(0);pointer-events:auto;}
+.undo-toast-btn{background:none;border:1px solid rgba(255,255,255,.5);color:#7ab8ff;border-radius:12px;padding:3px 12px;cursor:pointer;font-size:.78rem;font-family:'Noto Sans SC',sans-serif;}
+.undo-toast-btn:hover{background:rgba(255,255,255,.12);}
 .hl-mark{background:#fff1a8;color:inherit;border-radius:2px;padding:0 1px;}
 .stats-grid{display:flex;gap:10px;}
 .stats-item{flex:1;text-align:center;background:var(--accent-light);border-radius:10px;padding:14px 6px;}
@@ -330,6 +334,7 @@ textarea.nr-inp{height:72px;resize:none;padding:6px 8px;line-height:1.5;vertical
   </div>
 </div>
 <div class="toast" id="toast"></div>
+<div class="undo-toast" id="undoToast"><span id="undoToastMsg"></span><button class="undo-toast-btn" onclick="undoDelete()">撤销</button></div>
 <script>
 // ── State ──────────────────────────────────────────────────────────────────
 const PAGE_SIZE = 50;
@@ -346,6 +351,11 @@ let totalPages = 0;
 let currentFilters = { author: '', dateFrom: '', dateTo: '', tag: '', keyword: '' };
 let debounceTimer = null;
 let pendingNewRowFiles = [];
+let draftSaveTimer = null;
+const DRAFT_KEY = 'memory_newrow_draft';
+let pendingDeleteIds = new Set();
+let pendingDelete = null;
+const UNDO_DELAY = 5000;
 
 // ── Utilities ──────────────────────────────────────────────────────────────
 var _esc = document.createElement('div');
@@ -582,6 +592,45 @@ function bindTagChips() {
   });
 }
 
+// ── New-row draft autosave ────────────────────────────────────────────────
+function onDraftInput() {
+  clearTimeout(draftSaveTimer);
+  draftSaveTimer = setTimeout(saveDraft, 400);
+}
+function saveDraft() {
+  if (!newRowActive) return;
+  const draft = {
+    date: (document.getElementById('nr_date') || {}).value || '',
+    done: (document.getElementById('nr_done') || {}).value || '',
+    plan: (document.getElementById('nr_plan') || {}).value || '',
+    problem: (document.getElementById('nr_problem') || {}).value || '',
+    thinking: (document.getElementById('nr_thinking') || {}).value || '',
+    important: (document.getElementById('nr_important') || {}).value || '',
+    tagName: (document.getElementById('nr_tag') || {}).value || '',
+  };
+  if (!draft.done && !draft.plan && !draft.problem && !draft.thinking && !draft.important && !draft.tagName) {
+    clearDraft();
+    return;
+  }
+  localStorage.setItem(DRAFT_KEY, JSON.stringify(draft));
+}
+function clearDraft() { localStorage.removeItem(DRAFT_KEY); }
+function restoreDraftIfAny() {
+  const raw = localStorage.getItem(DRAFT_KEY);
+  if (!raw) return;
+  let draft;
+  try { draft = JSON.parse(raw); } catch { clearDraft(); return; }
+  const set = (id, v) => { const el = document.getElementById(id); if (el && v) el.value = v; };
+  set('nr_date', draft.date);
+  set('nr_done', draft.done);
+  set('nr_plan', draft.plan);
+  set('nr_problem', draft.problem);
+  set('nr_thinking', draft.thinking);
+  set('nr_important', draft.important);
+  set('nr_tag', draft.tagName);
+  showToast('已恢复上次未提交的草稿');
+}
+
 // ── New-row tag helpers ────────────────────────────────────────────────────
 function _nrTagChange() {
   const sel = document.getElementById('nr_tag');
@@ -612,6 +661,7 @@ async function _nrTagConfirm(e) {
   if (btn) btn.style.display = 'none';
   inp.value = '';
   showToast('标签已创建 ✓');
+  onDraftInput();
 }
 
 function _nrkd(e) {
@@ -638,28 +688,29 @@ function renderTable() {
     const today = new Date().toISOString().split('T')[0];
     rows.push('<tr class="new-row">' +
       '<td class="td-select"></td>' +
-      '<td class="nc"><input class="nr-inp" type="date" id="nr_date" value="' + today + '"/></td>' +
-      '<td class="nc"><div class="nr-stack"><textarea class="nr-inp" id="nr_done" placeholder="今日完成..." onkeydown="_nrkd(event)"></textarea>' +
-      '<div class="nr-tag-row"><select class="nr-tag name" id="nr_tag" onchange="_nrTagChange()"><option value="">不添加标签</option></select>' +
+      '<td class="nc"><input class="nr-inp" type="date" id="nr_date" value="' + today + '" onchange="onDraftInput()"/></td>' +
+      '<td class="nc"><div class="nr-stack"><textarea class="nr-inp" id="nr_done" placeholder="今日完成..." onkeydown="_nrkd(event)" oninput="onDraftInput()"></textarea>' +
+      '<div class="nr-tag-row"><select class="nr-tag name" id="nr_tag" onchange="_nrTagChange();onDraftInput()"><option value="">不添加标签</option></select>' +
       '<input class="nr-tag" id="nr_tag_new" placeholder="新标签名…" style="display:none;flex:1" onkeydown="_nrTagConfirm(event)"/>' +
       '<button class="btn-sv" id="nr_tag_btn" onclick="_nrTagConfirm(null)" style="display:none;padding:3px 7px">✓</button></div>' +
       '<div class="nr-file-row"><label class="btn-attach-sm" for="nr_files">📎 附件</label>' +
       '<input type="file" id="nr_files" multiple style="display:none" accept="image/jpeg,image/png,image/gif,image/webp,application/pdf" onchange="queueNewRowFiles(this)"/>' +
       '<div id="nr_file_preview" class="nr-file-preview"></div></div>' +
       '</div></td>' +
-      '<td class="nc"><textarea class="nr-inp" id="nr_plan" placeholder="明日计划…" onkeydown="_nrkd(event)"></textarea></td>' +
-      '<td class="nc"><textarea class="nr-inp" id="nr_problem" placeholder="遇到问题…" onkeydown="_nrkd(event)"></textarea></td>' +
-      '<td class="nc"><textarea class="nr-inp" id="nr_thinking" placeholder="感悟思考…" onkeydown="_nrkd(event)"></textarea></td>' +
-      '<td class="nc"><textarea class="nr-inp" id="nr_important" placeholder="重要备注…" onkeydown="_nrkd(event)"></textarea></td>' +
+      '<td class="nc"><textarea class="nr-inp" id="nr_plan" placeholder="明日计划…" onkeydown="_nrkd(event)" oninput="onDraftInput()"></textarea></td>' +
+      '<td class="nc"><textarea class="nr-inp" id="nr_problem" placeholder="遇到问题…" onkeydown="_nrkd(event)" oninput="onDraftInput()"></textarea></td>' +
+      '<td class="nc"><textarea class="nr-inp" id="nr_thinking" placeholder="感悟思考…" onkeydown="_nrkd(event)" oninput="onDraftInput()"></textarea></td>' +
+      '<td class="nc"><textarea class="nr-inp" id="nr_important" placeholder="重要备注…" onkeydown="_nrkd(event)" oninput="onDraftInput()"></textarea></td>' +
       '<td class="td-sub">' + (currentUser ? escapeHTML(currentUser.name) : '') + '</td>' +
       '<td class="td-act"><button class="btn-sv" onclick="saveNewRow()">✓</button><button class="btn-cx" onclick="cancelNewRow()">✕</button></td>' +
       '</tr>');
   }
 
-  if (!allRecords.length) {
+  const visibleRecords = allRecords.filter(r => !pendingDeleteIds.has(r.id));
+  if (!visibleRecords.length) {
     rows.push('<tr><td colspan="9" class="empty-msg">暂无记录</td></tr>');
   } else {
-    allRecords.forEach(r => {
+    visibleRecords.forEach(r => {
       const own = currentUser && r.author_id === currentUser.id;
       const canEdit = own || isAdmin;
       const cnt = commentCounts[r.id] || 0;
@@ -842,8 +893,9 @@ function addNewRow() {
   pendingNewRowFiles = [];
   newRowActive = true;
   renderTable();
+  restoreDraftIfAny();
 }
-function cancelNewRow() { newRowActive = false; pendingNewRowFiles = []; renderTable(); }
+function cancelNewRow() { newRowActive = false; pendingNewRowFiles = []; clearDraft(); renderTable(); }
 
 async function saveNewRow() {
   const date = (document.getElementById('nr_date') || {}).value || '';
@@ -872,20 +924,57 @@ async function saveNewRow() {
       }));
       pendingNewRowFiles = [];
     }
+    clearDraft();
     showToast('提交成功 ✓');
     await loadRecords(1);
     if (date === new Date().toISOString().split('T')[0]) document.getElementById('todayBanner').classList.remove('show');
   } else showToast('提交失败');
 }
 
-async function delRecord(id) {
-  if (!confirm('确定删除这条记录？')) return;
-  const res = await fetch('/api/worklogs/' + id, { method: 'DELETE', headers: authHeaders() });
-  if (res.ok) {
-    showToast('已删除');
-    const newPage = allRecords.length === 1 && currentPage > 1 ? currentPage - 1 : currentPage;
-    await loadRecords(newPage);
-  } else showToast('删除失败');
+function delRecord(id) {
+  if (pendingDelete) commitPendingDelete();
+  pendingDelete = { ids: [id] };
+  pendingDeleteIds = new Set([id]);
+  renderTable();
+  showUndoToast('已删除 1 条记录');
+  pendingDelete.timer = setTimeout(commitPendingDelete, UNDO_DELAY);
+}
+
+function showUndoToast(msg) {
+  const t = document.getElementById('undoToast');
+  document.getElementById('undoToastMsg').textContent = msg + '，可撤销';
+  t.classList.add('show');
+}
+function hideUndoToast() {
+  document.getElementById('undoToast').classList.remove('show');
+}
+
+function undoDelete() {
+  if (!pendingDelete) return;
+  clearTimeout(pendingDelete.timer);
+  pendingDelete = null;
+  pendingDeleteIds = new Set();
+  hideUndoToast();
+  renderTable();
+  showToast('已撤销删除');
+}
+
+async function commitPendingDelete() {
+  if (!pendingDelete) return;
+  const ids = pendingDelete.ids;
+  clearTimeout(pendingDelete.timer);
+  pendingDelete = null;
+  hideUndoToast();
+  let failed = 0;
+  await Promise.all(ids.map(async id => {
+    const res = await fetch('/api/worklogs/' + id, { method: 'DELETE', headers: authHeaders() });
+    if (!res.ok) failed++;
+  }));
+  pendingDeleteIds = new Set();
+  if (failed) showToast(failed + ' 条删除失败');
+  const remaining = allRecords.filter(r => !ids.includes(r.id));
+  const newPage = remaining.length === 0 && currentPage > 1 ? currentPage - 1 : currentPage;
+  await loadRecords(newPage);
 }
 
 async function saveRecordTag(id) {
@@ -974,20 +1063,16 @@ async function exportAll() {
   showToast('已导出 ' + results.length + ' 条记录');
 }
 
-async function bulkDelete() {
+function bulkDelete() {
   const ids = allRecords.filter(r => selectedIds.has(r.id)).map(r => r.id);
   if (!ids.length) return;
-  if (!confirm('确定删除选中的 ' + ids.length + ' 条记录？附件也会一并删除，此操作不可撤销。')) return;
-  let failed = 0;
-  await Promise.all(ids.map(async id => {
-    const res = await fetch('/api/worklogs/' + id, { method: 'DELETE', headers: authHeaders() });
-    if (!res.ok) failed++;
-    else selectedIds.delete(id);
-  }));
-  if (failed) showToast(failed + ' 条删除失败');
-  else showToast('已删除 ' + ids.length + ' 条记录');
-  const newPage = allRecords.length === ids.length && currentPage > 1 ? currentPage - 1 : currentPage;
-  await loadRecords(newPage);
+  if (pendingDelete) commitPendingDelete();
+  ids.forEach(id => selectedIds.delete(id));
+  pendingDelete = { ids };
+  pendingDeleteIds = new Set(ids);
+  renderTable();
+  showUndoToast('已删除 ' + ids.length + ' 条记录');
+  pendingDelete.timer = setTimeout(commitPendingDelete, UNDO_DELAY);
 }
 
 function queueNewRowFiles(input) {

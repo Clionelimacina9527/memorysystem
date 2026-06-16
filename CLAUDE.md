@@ -87,15 +87,15 @@ KV namespace `memory-uploadfiles` is bound as `env.KV`. Files stored with a UUID
 
 ### Pagination (server-side)
 
-`GET /api/worklogs` accepts `page`, `pageSize` (max 100, default 50), `author`, `dateFrom`, `dateTo`, `keyword`. Returns `{ results, total, page, pageSize, authors }`. Filtering and keyword search are handled in SQL with dynamic WHERE clauses. Frontend sends filter state as query params; a 350ms debounce applies to keyword input.
+`GET /api/worklogs` accepts `page`, `pageSize` (max 100, default 50), `author`, `dateFrom`, `dateTo`, `tag`, `keyword`. Returns `{ results, total, page, pageSize, authors }`. Filtering and keyword search are handled in SQL with dynamic WHERE clauses (the `tag` filter joins against `project_entries`/`projects` by name). Frontend sends filter state as query params; a 350ms debounce applies to keyword input. The toolbar's tag dropdown (`#filterTag`) is populated client-side from `allTags`.
 
 ### Notifications (DB-persisted)
 
 `users.notif_last_seen` (unix timestamp) tracks when the user last read notifications. `GET /api/my-comment-notifications` returns `{ items, unread_count }` where `is_new = created_at > notif_last_seen`. `POST /api/notifications/mark-read` sets `notif_last_seen = now`. Read state persists across devices/browsers. Feishu webhook is still fired fire-and-forget on comment creation.
 
-### Bulk delete
+### Delete undo (single + bulk)
 
-Toolbar shows 「批量删除」 only when rows are selected. Sends parallel `DELETE /api/worklogs/{id}` for each selected ID; server purges KV attachments first. After deletion, navigates back one page if current page is now empty.
+Clicking 「删除」 on a row, or 「批量删除」 in the toolbar, does **not** call the API immediately. It hides the affected row(s) client-side (`pendingDeleteIds`) and shows an undo toast (`#undoToast`) for `UNDO_DELAY` (5s). Clicking 「撤销」 (`undoDelete()`) cancels the timer and restores the row(s). If the window expires, `commitPendingDelete()` fires the real parallel `DELETE /api/worklogs/{id}` calls (server purges KV attachments first) and reloads the current page, stepping back one page if it's now empty. Only one pending-delete batch is tracked at a time — starting a new delete while one is pending immediately commits the previous one.
 
 ### Export
 
@@ -105,6 +105,30 @@ Toolbar shows 「批量删除」 only when rows are selected. Sends parallel `DE
 ### New-record attachments
 
 The new-row form has a 「📎 附件」 file picker. Files are staged in `pendingNewRowFiles[]` before the record is saved. On submit, `saveNewRow()` first creates the worklog, obtains its `id`, then uploads all staged files in parallel via `POST /api/worklogs/{id}/attachments`. Cancelling the new row clears `pendingNewRowFiles`.
+
+### Draft autosave (new record)
+
+While the new-row form is open, every field's `oninput`/`onchange` calls `onDraftInput()`, which debounces 400ms then saves all field values to `localStorage` under `memory_newrow_draft` (`saveDraft()`). If every field is empty the draft key is removed instead of saved. `addNewRow()` calls `restoreDraftIfAny()`, which repopulates the form and shows a toast if a draft exists. The draft is cleared (`clearDraft()`) on successful submit or on explicit cancel — never on a failed submit, so the draft survives a network error.
+
+### Keyword highlight
+
+`hl(escapedHtml)` wraps the current `currentFilters.keyword` (HTML-escaped, then regex-escaped) in `<mark class="hl-mark">` against already-escaped text. Applied to every text field rendered in both the collapsed table row and the expanded panel in `renderTable()`.
+
+### Tag filter
+
+`#filterTag` in the toolbar is a third filter dimension alongside author/date range/keyword (see Pagination above). `updateTagFilterDropdown()` rebuilds its `<option>` list from `allTags` after each `loadRecords()`, preserving the current selection.
+
+### Today reminder banner
+
+`checkTodayBanner()` shows a dismissible banner (`#today-banner`) if the current user has no worklog dated today; runs after login/register/init. Saving a new record dated today hides the banner immediately without waiting for the next check.
+
+### Personal stats panel
+
+「📊 我的统计」 opens a modal calling `GET /api/my-stats`, which returns `{ total, month, streak }` for the logged-in user: all-time record count, current-calendar-month count, and consecutive-day streak (computed in JS over `SELECT DISTINCT date` ordered descending, allowing the streak to count from yesterday if today has no entry yet).
+
+### Admin password reset
+
+Since there's no self-service password recovery, admins reset passwords manually: `GET /api/admin/users` lists all users, `POST /api/admin/reset-password` (admin-only) sets a new password by `userId`. No email/token flow — intentional given the small team size.
 
 ### CI/CD (GitHub Actions)
 
