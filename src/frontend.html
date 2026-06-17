@@ -789,7 +789,7 @@ function renderTable() {
         '</div>' +
         '<div class="comment-input-row">' +
         '<div class="comment-avatar">' + (currentUser && currentUser.name ? currentUser.name[0].toUpperCase() : '?') + '</div>' +
-        '<input class="comment-inp" id="ci_' + r.id + '" placeholder="写下你的评论…" onkeydown="if(event.key==='Enter')submitComment(' + r.id + ')"/>' +
+        '<input class="comment-inp" id="ci_' + r.id + '" placeholder="写下你的评论…" onkeydown="if(event.keyCode===13)submitComment(' + r.id + ')"/>' +
         '<button class="comment-send" onclick="submitComment(' + r.id + ')">发送</button>' +
         '</div></div></td></tr>'
       );
