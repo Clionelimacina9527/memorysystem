@@ -121,14 +121,17 @@ textarea.nr-inp{height:72px;resize:none;padding:6px 8px;line-height:1.5;vertical
 .comment-time{font-size:.7rem;color:var(--muted);}
 .btn-del-comment{background:none;border:none;font-size:.7rem;color:var(--red);cursor:pointer;opacity:.6;font-family:'Noto Sans SC',sans-serif;}
 .btn-reply-sm{background:none;border:none;font-size:.72rem;color:var(--accent);cursor:pointer;font-family:'Noto Sans SC',sans-serif;opacity:.75;margin-left:4px;}
-.comment-add-row{padding-top:4px;}
 .comment-text{font-size:.82rem;color:var(--text);line-height:1.6;}
-.comment-input-row{display:flex;align-items:center;gap:8px;padding-top:10px;border-top:1px solid var(--border);}
+.comment-reply-badge{display:inline-block;background:#edf2fd;color:var(--accent);border-radius:4px;padding:1px 6px;font-size:.72rem;margin-right:5px;vertical-align:middle;}
+.comment-input-wrap{padding-top:10px;border-top:1px solid var(--border);}
+.comment-reply-hint{display:flex;align-items:center;gap:6px;background:#f4f6fa;border-radius:6px;padding:5px 10px;font-size:.76rem;color:var(--muted);margin-bottom:8px;}
+.crh-text{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.crh-cancel{background:none;border:none;cursor:pointer;color:var(--muted);font-size:1rem;padding:0;line-height:1;flex-shrink:0;font-family:sans-serif;}
+.comment-input-row{display:flex;align-items:center;gap:8px;}
 .comment-avatar{width:26px;height:26px;border-radius:50%;background:linear-gradient(135deg,var(--accent),#a78bfa);display:flex;align-items:center;justify-content:center;font-size:.7rem;font-weight:700;color:white;flex-shrink:0;}
 .comment-inp{flex:1;border:1px solid var(--border);border-radius:6px;padding:7px 10px;font-size:.82rem;font-family:'Noto Sans SC',sans-serif;outline:none;}
 .comment-inp:focus{border-color:var(--accent);}
 .comment-send{background:var(--accent);border:none;border-radius:6px;padding:7px 14px;color:white;font-size:.78rem;cursor:pointer;font-family:'Noto Sans SC',sans-serif;}
-.btn-cancel-comment{background:none;border:1px solid var(--border);border-radius:6px;padding:7px 12px;color:var(--muted);font-size:.78rem;cursor:pointer;font-family:'Noto Sans SC',sans-serif;}
 .notif-panel{position:fixed;top:54px;right:20px;width:320px;background:white;border:1px solid var(--border);border-radius:10px;box-shadow:0 4px 20px rgba(0,0,0,.12);z-index:200;display:none;}
 .notif-header{display:flex;justify-content:space-between;align-items:center;padding:12px 16px;border-bottom:1px solid var(--border);font-size:.85rem;font-weight:600;}
 .notif-close{background:none;border:none;font-size:1.1rem;color:var(--muted);cursor:pointer;}
@@ -779,12 +782,16 @@ function renderTable() {
         '</div>' +
         '<div class="expand-divider"></div>' +
         '<div class="comment-list" id="cl_' + r.id + '"></div>' +
-        '<div class="comment-input-row" id="cbox_' + r.id + '" style="display:none">' +
+        '<div class="comment-input-wrap" id="cbox_' + r.id + '">' +
+        '<div class="comment-reply-hint" id="crh_' + r.id + '" style="display:none">' +
+        '<span class="crh-text" id="crh_text_' + r.id + '"></span>' +
+        '<button class="crh-cancel" onclick="clearReplyTo(' + r.id + ')">×</button>' +
+        '</div>' +
+        '<div class="comment-input-row">' +
         '<div class="comment-avatar">' + (currentUser && currentUser.name ? currentUser.name[0].toUpperCase() : '?') + '</div>' +
         '<input class="comment-inp" id="ci_' + r.id + '" placeholder="写下你的评论…" onkeydown="if(event.key===String.fromCharCode(13))submitComment(' + r.id + ')"/>' +
         '<button class="comment-send" onclick="submitComment(' + r.id + ')">发送</button>' +
-        '<button class="btn-cancel-comment" onclick="toggleReplyBox(' + r.id + ')">取消</button>' +
-        '</div></td></tr>'
+        '</div></div></td></tr>'
       );
     });
   }
@@ -1147,43 +1154,62 @@ async function loadComments(id) {
   renderComments(id, await res.json());
 }
 
+function renderCommentText(text) {
+  const m = (text || '').match(/^回复 @([^：\n]+)：([\s\S]*)$/);
+  if (m) return '<span class="comment-reply-badge">回复 @' + escapeHTML(m[1]) + '</span>' + displayText(m[2]);
+  return displayText(text);
+}
+
 function renderComments(id, comments) {
   const el = document.getElementById('cl_' + id);
   if (!el) return;
-  const addBtn = '<button class="btn-reply-sm" onclick="toggleReplyBox(' + id + ')">✏️ 写评论</button>';
-  if (!comments.length) { el.innerHTML = '<div class="no-comment">还没有评论，来第一个提问吧 ' + addBtn + '</div>'; return; }
-  const list = comments.map(c => {
+  if (!comments.length) { el.innerHTML = '<div class="no-comment">还没有评论，来第一个提问吧</div>'; return; }
+  el.innerHTML = comments.map(c => {
     const t = c.created_at ? new Date(c.created_at * 1000).toLocaleDateString('zh-CN', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : '';
     const isMe = currentUser && c.author_id === currentUser.id;
     const isAdm = currentUser && currentUser.isAdmin;
+    const rawText = (c.text || '').replace(/^回复 @[^：\n]+：/, '');
+    const excerpt = rawText.slice(0, 18) + (rawText.length > 18 ? '…' : '');
     return '<div class="comment-item">' +
       '<div class="comment-avatar-sm">' + (c.author_name ? c.author_name[0].toUpperCase() : '?') + '</div>' +
       '<div class="comment-body"><div class="comment-meta">' +
       '<span class="comment-name">' + escapeHTML(c.author_name) + '</span>' +
       '<span class="comment-time">' + t + '</span>' +
       ((isMe || isAdm) ? '<button class="btn-del-comment" onclick="delComment(' + id + ',' + c.id + ')">删除</button>' : '') +
-      '</div><div class="comment-text">' + escapeHTML(c.text) + '</div></div></div>';
+      '<button class="btn-reply-sm" onclick="setReplyTo(' + id + ',' + JSON.stringify(c.author_name) + ',' + JSON.stringify(excerpt) + ')">回复</button>' +
+      '</div><div class="comment-text">' + renderCommentText(c.text) + '</div></div></div>';
   }).join('');
-  el.innerHTML = list + '<div class="comment-add-row">' + addBtn + '</div>';
 }
 
-function toggleReplyBox(id) {
-  const box = document.getElementById('cbox_' + id);
-  if (!box) return;
-  const isOpen = box.style.display !== 'none';
-  box.style.display = isOpen ? 'none' : 'flex';
-  if (!isOpen) setTimeout(() => { const el = document.getElementById('ci_' + id); if (el) el.focus(); }, 30);
+function setReplyTo(id, name, excerpt) {
+  const hint = document.getElementById('crh_' + id);
+  const hintText = document.getElementById('crh_text_' + id);
+  if (!hint || !hintText) return;
+  hintText.textContent = '回复 @' + name + '：' + excerpt;
+  hint.style.display = 'flex';
+  const inp = document.getElementById('ci_' + id);
+  if (inp) inp.focus();
+}
+
+function clearReplyTo(id) {
+  const hint = document.getElementById('crh_' + id);
+  if (hint) hint.style.display = 'none';
 }
 
 async function submitComment(id) {
   const inp = document.getElementById('ci_' + id);
-  const text = inp && inp.value.trim();
+  let text = inp && inp.value.trim();
   if (!text) return;
+  const hint = document.getElementById('crh_' + id);
+  if (hint && hint.style.display !== 'none') {
+    const hintText = document.getElementById('crh_text_' + id);
+    const m = hintText && hintText.textContent.match(/^回复 @([^：]+)：/);
+    if (m) text = '回复 @' + m[1] + '：' + text;
+  }
   inp.value = '';
+  clearReplyTo(id);
   const res = await fetch('/api/worklogs/' + id + '/comments', { method: 'POST', headers: authHeaders(), body: JSON.stringify({ text }) });
   if (res.ok) {
-    const box = document.getElementById('cbox_' + id);
-    if (box) box.style.display = 'none';
     await loadComments(id);
     commentCounts[id] = (commentCounts[id] || 0) + 1;
     const cc = document.querySelector('tr[data-rid="' + id + '"] .btn-comment');
