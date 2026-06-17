@@ -1231,7 +1231,6 @@ async function submitComment(id) {
 }
 
 async function delComment(wid, cid) {
-  if (!confirm('删除这条评论？')) return;
   const res = await fetch('/api/comments/' + cid, { method: 'DELETE', headers: authHeaders() });
   if (res.ok) { delete commentCache[wid]; await loadComments(wid, true); }
 }
@@ -1293,7 +1292,6 @@ async function uploadAttachment(wid, input) {
 }
 
 async function delAttachment(wid, aid) {
-  if (!confirm('删除这个附件？')) return;
   const res = await fetch('/api/attachments/' + aid, { method: 'DELETE', headers: authHeaders() });
   if (res.ok) { showToast('已删除'); await loadAttachments(wid); } else showToast('删除失败');
 }
@@ -1412,7 +1410,6 @@ async function renameTag(id) {
 }
 
 async function deleteTag(id) {
-  if (!confirm('确定删除这个标签？相关记录会取消标签关联，若有子标签会变为一级标签')) return;
   const res = await fetch('/api/tags/' + id, { method: 'DELETE', headers: authHeaders() });
   if (!res.ok) { showToast('删除失败'); return; }
   await loadTags(); await loadRecords(currentPage); renderTagManage();
