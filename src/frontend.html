@@ -349,6 +349,7 @@ let currentUser = null;
 let allRecords = [];
 let newRowActive = false;
 let commentCounts = {};
+let commentCache = {};
 let allTags = [];
 let selectedIds = new Set();
 let resetTargetId = null;
@@ -479,6 +480,7 @@ function doLogout() {
 async function loadRecords(page) {
   page = page || currentPage;
   currentPage = page;
+  commentCache = {};
   const params = new URLSearchParams({ page, pageSize: PAGE_SIZE });
   if (currentFilters.author) params.set('author', currentFilters.author);
   if (currentFilters.dateFrom) params.set('dateFrom', currentFilters.dateFrom);
@@ -1148,10 +1150,15 @@ async function toggleExpand(id) {
   await Promise.all([loadComments(id), loadAttachments(id)]);
 }
 
-async function loadComments(id) {
+async function loadComments(id, forceRefresh) {
+  if (!forceRefresh && commentCache[id]) { renderComments(id, commentCache[id]); return; }
+  const el = document.getElementById('cl_' + id);
+  if (el && !commentCache[id]) el.innerHTML = '<div class="no-comment">加载中…</div>';
   const res = await fetch('/api/worklogs/' + id + '/comments', { headers: authHeaders() });
   if (!res.ok) return;
-  renderComments(id, await res.json());
+  const data = await res.json();
+  commentCache[id] = data;
+  renderComments(id, data);
 }
 
 function renderCommentText(text) {
@@ -1210,7 +1217,8 @@ async function submitComment(id) {
   clearReplyTo(id);
   const res = await fetch('/api/worklogs/' + id + '/comments', { method: 'POST', headers: authHeaders(), body: JSON.stringify({ text }) });
   if (res.ok) {
-    await loadComments(id);
+    delete commentCache[id];
+    await loadComments(id, true);
     commentCounts[id] = (commentCounts[id] || 0) + 1;
     const cc = document.querySelector('tr[data-rid="' + id + '"] .btn-comment');
     if (cc) cc.textContent = '💬 ' + commentCounts[id];
@@ -1221,7 +1229,7 @@ async function submitComment(id) {
 async function delComment(wid, cid) {
   if (!confirm('删除这条评论？')) return;
   const res = await fetch('/api/comments/' + cid, { method: 'DELETE', headers: authHeaders() });
-  if (res.ok) await loadComments(wid);
+  if (res.ok) { delete commentCache[wid]; await loadComments(wid, true); }
 }
 
 // ── Attachments ───────────────────────────────────────────────────────────
