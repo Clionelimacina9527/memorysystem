@@ -846,14 +846,18 @@ function startEdit(td) {
   inp.focus();
   if (field !== 'date') inp.selectionStart = inp.selectionEnd = (inp.value || '').length;
 
+  const setCell = (val) => {
+    if (field === 'done') { td.innerHTML = tagBadge(rec) + hl(firstLine(val)); bindTagChips(); }
+    else td.textContent = val;
+  };
   const commit = async () => {
     const newVal = inp.value.trim();
-    delete td.dataset.editing; td.classList.remove('active-cell'); td.textContent = newVal;
+    delete td.dataset.editing; td.classList.remove('active-cell'); setCell(newVal);
     td.addEventListener('click', e => { e.stopPropagation(); startEdit(td); }, { once: true });
     if (newVal === origVal) return;
     const body = Object.assign({}, rec); body[field] = newVal;
     const res = await fetch('/api/worklogs/' + id, { method: 'PUT', headers: authHeaders(), body: JSON.stringify(body) });
-    if (res.ok) { rec[field] = newVal; showToast('已保存 ✓'); } else { showToast('保存失败'); td.textContent = origText; }
+    if (res.ok) { rec[field] = newVal; showToast('已保存 ✓'); } else { showToast('保存失败'); setCell(origVal); }
   };
   inp.addEventListener('blur', commit);
   inp.addEventListener('keydown', e => {
@@ -866,7 +870,7 @@ function startEdit(td) {
     }
     if (e.key === 'Escape') {
       inp.removeEventListener('blur', commit);
-      delete td.dataset.editing; td.classList.remove('active-cell'); td.textContent = origText;
+      delete td.dataset.editing; td.classList.remove('active-cell'); setCell(origVal);
       td.addEventListener('click', e => { e.stopPropagation(); startEdit(td); }, { once: true });
     }
     if (e.key === 'Tab') {
