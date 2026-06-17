@@ -1176,7 +1176,7 @@ function renderComments(id, comments) {
       '<span class="comment-name">' + escapeHTML(c.author_name) + '</span>' +
       '<span class="comment-time">' + t + '</span>' +
       ((isMe || isAdm) ? '<button class="btn-del-comment" onclick="delComment(' + id + ',' + c.id + ')">删除</button>' : '') +
-      '<button class="btn-reply-sm" onclick="setReplyTo(' + id + ',' + escapeHTML(JSON.stringify(c.author_name)) + ',' + escapeHTML(JSON.stringify(excerpt)) + ')">回复</button>' +
+      '<button class="btn-reply-sm" onclick="setReplyTo(' + id + ',' + JSON.stringify(c.author_name).replace(/"/g,'&quot;') + ',' + JSON.stringify(excerpt).replace(/"/g,'&quot;') + ')">回复</button>' +
       '</div><div class="comment-text">' + renderCommentText(c.text) + '</div></div></div>';
   }).join('');
 }
