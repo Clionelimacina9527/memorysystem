@@ -121,6 +121,7 @@ textarea.nr-inp{height:72px;resize:none;padding:6px 8px;line-height:1.5;vertical
 .comment-time{font-size:.7rem;color:var(--muted);}
 .btn-del-comment{background:none;border:none;font-size:.7rem;color:var(--red);cursor:pointer;opacity:.6;font-family:'Noto Sans SC',sans-serif;}
 .btn-reply-sm{background:none;border:none;font-size:.72rem;color:var(--accent);cursor:pointer;font-family:'Noto Sans SC',sans-serif;opacity:.75;margin-left:4px;}
+.comment-add-row{padding-top:4px;}
 .comment-text{font-size:.82rem;color:var(--text);line-height:1.6;}
 .comment-input-row{display:flex;align-items:center;gap:8px;padding-top:10px;border-top:1px solid var(--border);}
 .comment-avatar{width:26px;height:26px;border-radius:50%;background:linear-gradient(135deg,var(--accent),#a78bfa);display:flex;align-items:center;justify-content:center;font-size:.7rem;font-weight:700;color:white;flex-shrink:0;}
@@ -780,7 +781,7 @@ function renderTable() {
         '<div class="comment-list" id="cl_' + r.id + '"></div>' +
         '<div class="comment-input-row" id="cbox_' + r.id + '" style="display:none">' +
         '<div class="comment-avatar">' + (currentUser && currentUser.name ? currentUser.name[0].toUpperCase() : '?') + '</div>' +
-        '<input class="comment-inp" id="ci_' + r.id + '" placeholder="写下你的疑问或回复…" onkeydown="if(event.key===String.fromCharCode(13))submitComment(' + r.id + ')"/>' +
+        '<input class="comment-inp" id="ci_' + r.id + '" placeholder="写下你的评论…" onkeydown="if(event.key===String.fromCharCode(13))submitComment(' + r.id + ')"/>' +
         '<button class="comment-send" onclick="submitComment(' + r.id + ')">发送</button>' +
         '<button class="btn-cancel-comment" onclick="toggleReplyBox(' + r.id + ')">取消</button>' +
         '</div></td></tr>'
@@ -1149,9 +1150,9 @@ async function loadComments(id) {
 function renderComments(id, comments) {
   const el = document.getElementById('cl_' + id);
   if (!el) return;
-  const replyBtn = '<button class="btn-reply-sm" onclick="toggleReplyBox(' + id + ')">✏️ 回复</button>';
-  if (!comments.length) { el.innerHTML = '<div class="no-comment">还没有评论，来第一个提问吧 ' + replyBtn + '</div>'; return; }
-  el.innerHTML = comments.map(c => {
+  const addBtn = '<button class="btn-reply-sm" onclick="toggleReplyBox(' + id + ')">✏️ 写评论</button>';
+  if (!comments.length) { el.innerHTML = '<div class="no-comment">还没有评论，来第一个提问吧 ' + addBtn + '</div>'; return; }
+  const list = comments.map(c => {
     const t = c.created_at ? new Date(c.created_at * 1000).toLocaleDateString('zh-CN', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : '';
     const isMe = currentUser && c.author_id === currentUser.id;
     const isAdm = currentUser && currentUser.isAdmin;
@@ -1161,9 +1162,9 @@ function renderComments(id, comments) {
       '<span class="comment-name">' + escapeHTML(c.author_name) + '</span>' +
       '<span class="comment-time">' + t + '</span>' +
       ((isMe || isAdm) ? '<button class="btn-del-comment" onclick="delComment(' + id + ',' + c.id + ')">删除</button>' : '') +
-      replyBtn +
       '</div><div class="comment-text">' + escapeHTML(c.text) + '</div></div></div>';
   }).join('');
+  el.innerHTML = list + '<div class="comment-add-row">' + addBtn + '</div>';
 }
 
 function toggleReplyBox(id) {
