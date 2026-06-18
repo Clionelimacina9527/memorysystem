@@ -171,6 +171,8 @@ textarea.nr-inp{height:72px;resize:none;padding:6px 8px;line-height:1.5;vertical
 .nr-file-tag{display:inline-flex;align-items:center;gap:3px;background:#f0f7ff;border:1px solid #aac8f0;border-radius:4px;padding:2px 6px;font-size:.7rem;color:var(--text);max-width:140px;}
 .nr-file-tag span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
 .nr-file-tag button{background:none;border:none;color:var(--red);cursor:pointer;font-size:.76rem;line-height:1;padding:0;flex-shrink:0;}
+.nr-file-img{padding:2px 4px 2px 2px;}
+.nr-thumb{width:48px;height:48px;object-fit:cover;border-radius:4px;border:1px solid var(--border);vertical-align:middle;display:block;}
 .btn-bulk-del{background:var(--red)!important;}
 .btn-bulk-del:hover{opacity:.88;}
 .modal-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.4);z-index:300;align-items:center;justify-content:center;}
@@ -224,7 +226,7 @@ textarea.nr-inp{height:72px;resize:none;padding:6px 8px;line-height:1.5;vertical
       <div class="field"><label>邮箱</label><input type="email" id="loginEmail" placeholder="your@email.com" onkeydown="if(event.key==='Enter')doLogin()"/></div>
       <div class="field"><label>密码</label><input type="password" id="loginPass" placeholder="••••••" onkeydown="if(event.key==='Enter')doLogin()"/></div>
       <div class="auth-error" id="authError"></div>
-      <button class="btn-auth" onclick="doLogin()">登录</button>
+      <button class="btn-auth" id="loginBtn" onclick="doLogin()">登录</button>
     </div>
     <div class="auth-form" id="registerForm">
       <div class="field"><label>姓名</label><input type="text" id="regName" placeholder="你的姓名"/></div>
@@ -289,7 +291,7 @@ textarea.nr-inp{height:72px;resize:none;padding:6px 8px;line-height:1.5;vertical
 <div class="modal-overlay" id="tagManageModal">
   <div class="modal-box tag-modal">
     <div class="tag-head"><div class="modal-title" style="margin-bottom:0">标签分类</div><button class="btn-logout" onclick="hideTagManage()">关闭</button></div>
-    <div class="field" style="margin-bottom:12px;"><label>标签名</label><div style="display:flex;gap:8px;"><input id="newTagName" placeholder="标签名" style="flex:1;min-width:0;"/><select id="newTagParent" class="tag-parent-select"></select><button class="btn-auth" style="padding:8px 14px;flex-shrink:0;" onclick="addTag()">添加</button></div></div>
+    <div class="field" style="margin-bottom:12px;"><label>标签名</label><div style="display:flex;gap:8px;"><input id="newTagName" placeholder="标签名" style="flex:1;min-width:0;"/><select id="newTagParent" class="tag-parent-select"></select><button class="btn-auth" id="addTagBtn" style="padding:8px 14px;flex-shrink:0;" onclick="addTag()">添加</button></div></div>
     <div id="tagManageList"></div>
   </div>
 </div>
@@ -364,6 +366,9 @@ const DRAFT_KEY = 'memory_newrow_draft';
 let pendingDeleteIds = new Set();
 let pendingDelete = null;
 const UNDO_DELAY = 5000;
+let isSaving = false;
+let pollingTimer = null;
+let newRowFileObjectUrls = [];
 
 // ── Utilities ──────────────────────────────────────────────────────────────
 var _esc = document.createElement('div');
@@ -407,6 +412,28 @@ function dismissTodayBanner() {
   document.getElementById('todayBanner').classList.remove('show');
 }
 
+function withBtnLoading(btn, loadText) {
+  if (!btn) return () => {};
+  const orig = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = loadText || '处理中…';
+  return () => { btn.disabled = false; btn.textContent = orig; };
+}
+
+function startPolling() {
+  if (pollingTimer) return;
+  pollingTimer = setInterval(() => {
+    if (document.visibilityState !== 'visible') return;
+    if (newRowActive) return;
+    if (pendingDelete) return;
+    loadRecords(currentPage);
+  }, 30000);
+}
+
+function stopPolling() {
+  if (pollingTimer) { clearInterval(pollingTimer); pollingTimer = null; }
+}
+
 // ── Init ───────────────────────────────────────────────────────────────────
 const saved = localStorage.getItem('memory_user');
 if (saved) {
@@ -415,6 +442,7 @@ if (saved) {
   document.getElementById('topUser').textContent = currentUser.name;
   if (currentUser.isAdmin) document.getElementById('adminBtn').style.display = 'inline-block';
   loadRecords(1);
+  startPolling();
   checkTodayBanner();
 } else {
   hide('loadingScreen'); show('authScreen');
@@ -433,9 +461,11 @@ async function doLogin() {
   const pass = document.getElementById('loginPass').value;
   document.getElementById('authError').textContent = '';
   if (!email || !pass) { document.getElementById('authError').textContent = '请填写邮箱和密码'; return; }
+  const btn = document.getElementById('loginBtn');
+  const restore = withBtnLoading(btn, '登录中…');
   const res = await fetch('/api/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email, password: pass }) });
   const data = await res.json();
-  if (!res.ok) { document.getElementById('authError').textContent = data.error; return; }
+  if (!res.ok) { restore(); document.getElementById('authError').textContent = data.error; return; }
   localStorage.setItem('memory_token', data.token);
   localStorage.setItem('memory_user', JSON.stringify(data.user));
   currentUser = data.user;
@@ -443,6 +473,7 @@ async function doLogin() {
   document.getElementById('topUser').textContent = currentUser.name;
   if (currentUser.isAdmin) document.getElementById('adminBtn').style.display = 'inline-block';
   loadRecords(1);
+  startPolling();
   checkTodayBanner();
 }
 
@@ -466,10 +497,12 @@ async function doRegister() {
   document.getElementById('topUser').textContent = currentUser.name;
   if (currentUser.isAdmin) document.getElementById('adminBtn').style.display = 'inline-block';
   loadRecords(1);
+  startPolling();
   checkTodayBanner();
 }
 
 function doLogout() {
+  stopPolling();
   localStorage.removeItem('memory_token');
   localStorage.removeItem('memory_user');
   currentUser = null; allRecords = []; selectedIds.clear();
@@ -734,7 +767,7 @@ function renderTable() {
       '<td class="nc"><textarea class="nr-inp" id="nr_thinking" placeholder="感悟思考…" onkeydown="_nrkd(event)" oninput="onDraftInput()"></textarea></td>' +
       '<td class="nc"><textarea class="nr-inp" id="nr_important" placeholder="重要备注…" onkeydown="_nrkd(event)" oninput="onDraftInput()"></textarea></td>' +
       '<td class="td-sub">' + (currentUser ? escapeHTML(currentUser.name) : '') + '</td>' +
-      '<td class="td-act"><button class="btn-sv" onclick="saveNewRow()">✓</button><button class="btn-cx" onclick="cancelNewRow()">✕</button></td>' +
+      '<td class="td-act"><button class="btn-sv" id="nr_submit_btn" onclick="saveNewRow()">✓</button><button class="btn-cx" onclick="cancelNewRow()">✕</button></td>' +
       '</tr>');
   }
 
@@ -765,7 +798,7 @@ function renderTable() {
         '<td colspan="9" class="expand-panel">' +
         '<div class="tag-edit-row" onclick="event.stopPropagation()"><label>标签</label>' +
         '<select class="tag-edit-select record-tag-select" id="tag_sel_' + r.id + '" data-current="' + escapeHTML((getRecordTag(r) || {}).name || '') + '"></select>' +
-        '<button class="btn-sv" onclick="saveRecordTag(' + r.id + ')">保存</button>' +
+        '<button class="btn-sv" id="tag_sv_' + r.id + '" onclick="saveRecordTag(' + r.id + ')">保存</button>' +
         (getRecordTag(r) ? '<button class="tag-chip" data-pid="' + (getRecordTag(r).id || '') + '" data-project="' + encodeURIComponent(getRecordTag(r).name) + '">查看时间树</button>' : '') +
         '</div>' +
         '<div class="expand-fields">' +
@@ -935,9 +968,17 @@ function addNewRow() {
   renderTable();
   restoreDraftIfAny();
 }
-function cancelNewRow() { newRowActive = false; pendingNewRowFiles = []; clearDraft(); renderTable(); }
+function cancelNewRow() {
+  newRowActive = false;
+  pendingNewRowFiles = [];
+  newRowFileObjectUrls.forEach(u => URL.revokeObjectURL(u));
+  newRowFileObjectUrls = [];
+  clearDraft();
+  renderTable();
+}
 
 async function saveNewRow() {
+  if (isSaving) return;
   const date = (document.getElementById('nr_date') || {}).value || '';
   const done = ((document.getElementById('nr_done') || {}).value || '').trim();
   const plan = ((document.getElementById('nr_plan') || {}).value || '').trim();
@@ -947,37 +988,48 @@ async function saveNewRow() {
   const tagName = ((document.getElementById('nr_tag') || {}).value || '').trim();
   if (!date) { showToast('请选择日期'); return; }
   if (!done && !plan && !tagName) { showToast('请至少填写今日完成、明日计划或标签'); return; }
-  const res = await fetch('/api/worklogs', { method: 'POST', headers: authHeaders(), body: JSON.stringify({ date, done, plan, problem, thinking, important, tagName }) });
-  if (res.ok) {
-    const { id: newId } = await res.json();
-    newRowActive = false;
-    if (pendingNewRowFiles.length) {
-      showToast('上传附件中…');
-      await Promise.all(pendingNewRowFiles.map(f => {
-        const fd = new FormData();
-        fd.append('file', f);
-        return fetch('/api/worklogs/' + newId + '/attachments', {
-          method: 'POST',
-          headers: { 'Authorization': 'Bearer ' + localStorage.getItem('memory_token') },
-          body: fd
-        });
-      }));
-      pendingNewRowFiles = [];
-    }
-    clearDraft();
-    // Optimistic insert: build the record locally and render immediately
-    const newRec = { id: newId, date, done, plan, problem, thinking, important,
-      author_id: currentUser.id, author_name: currentUser.name,
-      tag_id: null, tag_name: null, created_at: Math.floor(Date.now() / 1000) };
-    if (tagName) { const t = allTags.find(t => t.name === tagName); if (t) { newRec.tag_id = t.id; newRec.tag_name = t.name; } }
-    commentCounts[newId] = 0;
-    allRecords.unshift(newRec);
-    totalRecords++;
-    renderTable();
-    showToast('提交成功 ✓');
-    if (date === new Date().toISOString().split('T')[0]) document.getElementById('todayBanner').classList.remove('show');
-    loadRecords(1); // background sync — no await
-  } else showToast('提交失败');
+  if (currentUser && allRecords.some(r => r.date === date && r.author_id === currentUser.id)) {
+    if (!confirm(date + ' 已有一条记录，确定要再提交一条吗？')) return;
+  }
+  isSaving = true;
+  const restore = withBtnLoading(document.getElementById('nr_submit_btn'), '提交中…');
+  try {
+    const res = await fetch('/api/worklogs', { method: 'POST', headers: authHeaders(), body: JSON.stringify({ date, done, plan, problem, thinking, important, tagName }) });
+    if (res.ok) {
+      const { id: newId } = await res.json();
+      newRowActive = false;
+      if (pendingNewRowFiles.length) {
+        showToast('上传附件中…');
+        await Promise.all(pendingNewRowFiles.map(f => {
+          const fd = new FormData();
+          fd.append('file', f);
+          return fetch('/api/worklogs/' + newId + '/attachments', {
+            method: 'POST',
+            headers: { 'Authorization': 'Bearer ' + localStorage.getItem('memory_token') },
+            body: fd
+          });
+        }));
+        pendingNewRowFiles = [];
+      }
+      newRowFileObjectUrls.forEach(u => URL.revokeObjectURL(u));
+      newRowFileObjectUrls = [];
+      clearDraft();
+      const newRec = { id: newId, date, done, plan, problem, thinking, important,
+        author_id: currentUser.id, author_name: currentUser.name,
+        tag_id: null, tag_name: null, created_at: Math.floor(Date.now() / 1000) };
+      if (tagName) { const t = allTags.find(t => t.name === tagName); if (t) { newRec.tag_id = t.id; newRec.tag_name = t.name; } }
+      commentCounts[newId] = 0;
+      allRecords.unshift(newRec);
+      totalRecords++;
+      renderTable();
+      showToast('提交成功 ✓');
+      if (date === new Date().toISOString().split('T')[0]) document.getElementById('todayBanner').classList.remove('show');
+      loadRecords(1); // background sync — no await
+    } else showToast('提交失败');
+  } finally {
+    isSaving = false;
+    restore();
+  }
 }
 
 function delRecord(id) {
@@ -1033,9 +1085,14 @@ async function saveRecordTag(id) {
   const sel = document.getElementById('tag_sel_' + id);
   const rec = allRecords.find(r => r.id === id);
   if (!sel || !rec) return;
+  const restore = withBtnLoading(document.getElementById('tag_sv_' + id), '保存中…');
   const body = Object.assign({}, rec, { tagName: sel.value || '' });
-  const res = await fetch('/api/worklogs/' + id, { method: 'PUT', headers: authHeaders(), body: JSON.stringify(body) });
-  if (res.ok) { showToast('标签已保存 ✓'); await loadRecords(currentPage); await toggleExpand(id); } else showToast('标签保存失败');
+  try {
+    const res = await fetch('/api/worklogs/' + id, { method: 'PUT', headers: authHeaders(), body: JSON.stringify(body) });
+    if (res.ok) { showToast('标签已保存 ✓'); await loadRecords(currentPage); await toggleExpand(id); } else showToast('标签保存失败');
+  } finally {
+    restore();
+  }
 }
 
 // ── Selection & Export ─────────────────────────────────────────────────────
@@ -1139,12 +1196,20 @@ function queueNewRowFiles(input) {
 }
 
 function renderNewRowFilePreview() {
+  newRowFileObjectUrls.forEach(u => URL.revokeObjectURL(u));
+  newRowFileObjectUrls = [];
   const el = document.getElementById('nr_file_preview');
   if (!el) return;
-  el.innerHTML = pendingNewRowFiles.map((f, i) =>
-    '<span class="nr-file-tag"><span>' + escapeHTML(f.name) + '</span>' +
-    '<button onclick="removeNewRowFile(' + i + ')">×</button></span>'
-  ).join('');
+  el.innerHTML = pendingNewRowFiles.map((f, i) => {
+    if (f.type.startsWith('image/')) {
+      const objUrl = URL.createObjectURL(f);
+      newRowFileObjectUrls.push(objUrl);
+      return '<span class="nr-file-tag nr-file-img"><img src="' + objUrl + '" class="nr-thumb" alt=""/>' +
+        '<button onclick="removeNewRowFile(' + i + ')">×</button></span>';
+    }
+    return '<span class="nr-file-tag"><span>' + escapeHTML(f.name) + '</span>' +
+      '<button onclick="removeNewRowFile(' + i + ')">×</button></span>';
+  }).join('');
 }
 
 function removeNewRowFile(i) {
@@ -1231,14 +1296,20 @@ async function submitComment(id) {
   }
   inp.value = '';
   clearReplyTo(id);
-  const res = await fetch('/api/worklogs/' + id + '/comments', { method: 'POST', headers: authHeaders(), body: JSON.stringify({ text }) });
-  if (res.ok) {
-    delete commentCache[id];
-    await loadComments(id, true);
-    commentCounts[id] = (commentCounts[id] || 0) + 1;
-    const cc = document.querySelector('tr[data-rid="' + id + '"] .btn-comment');
-    if (cc) cc.textContent = '💬 ' + commentCounts[id];
-    await checkNotifications();
+  const sendBtn = inp && inp.parentElement && inp.parentElement.querySelector('.comment-send');
+  const restore = withBtnLoading(sendBtn, '…');
+  try {
+    const res = await fetch('/api/worklogs/' + id + '/comments', { method: 'POST', headers: authHeaders(), body: JSON.stringify({ text }) });
+    if (res.ok) {
+      delete commentCache[id];
+      await loadComments(id, true);
+      commentCounts[id] = (commentCounts[id] || 0) + 1;
+      const cc = document.querySelector('tr[data-rid="' + id + '"] .btn-comment');
+      if (cc) cc.textContent = '💬 ' + commentCounts[id];
+      await checkNotifications();
+    }
+  } finally {
+    restore();
   }
 }
 
@@ -1400,7 +1471,7 @@ function renderTagManage() {
     '<div class="tag-manage-row' + (isChild ? ' tag-manage-child' : '') + '">' +
     '<input id="tag_edit_' + t.id + '" value="' + escapeHTML(t.name) + '"/>' +
     '<select id="tag_parent_' + t.id + '" class="tag-parent-select">' + topLevelParentOptionsHtml(t.parent_id || null, t.id) + '</select>' +
-    '<div class="tag-manage-actions"><button class="btn-sv" onclick="renameTag(' + t.id + ')">保存</button>' +
+    '<div class="tag-manage-actions"><button class="btn-sv" id="tag_rename_' + t.id + '" onclick="renameTag(' + t.id + ')">保存</button>' +
     '<button class="btn-del" onclick="deleteTag(' + t.id + ')">删除</button></div></div>';
   list.innerHTML = top.map(p => row(p, false) + childrenOf(p.id).map(c => row(c, true)).join('')).join('');
 }
@@ -1414,12 +1485,17 @@ async function addTag() {
   const name = (input && input.value || '').trim();
   if (!name) { showToast('标签名不能为空'); return; }
   const parentId = parentSel && parentSel.value ? parseInt(parentSel.value) : null;
-  const res = await fetch('/api/tags', { method: 'POST', headers: authHeaders(), body: JSON.stringify({ name, parentId }) });
-  const data = await res.json();
-  if (!res.ok) { showToast(data.error || '添加失败'); return; }
-  input.value = '';
-  if (parentSel) parentSel.value = '';
-  await loadTags(); renderTagManage(); renderTable();
+  const restore = withBtnLoading(document.getElementById('addTagBtn'), '添加中…');
+  try {
+    const res = await fetch('/api/tags', { method: 'POST', headers: authHeaders(), body: JSON.stringify({ name, parentId }) });
+    const data = await res.json();
+    if (!res.ok) { showToast(data.error || '添加失败'); return; }
+    input.value = '';
+    if (parentSel) parentSel.value = '';
+    await loadTags(); renderTagManage(); renderTable();
+  } finally {
+    restore();
+  }
 }
 
 async function renameTag(id) {
@@ -1428,10 +1504,15 @@ async function renameTag(id) {
   const name = (input && input.value || '').trim();
   if (!name) { showToast('标签名不能为空'); return; }
   const parentId = parentSel && parentSel.value ? parseInt(parentSel.value) : null;
-  const res = await fetch('/api/tags/' + id, { method: 'PUT', headers: authHeaders(), body: JSON.stringify({ name, parentId }) });
-  const data = await res.json();
-  if (!res.ok) { showToast(data.error || '保存失败'); return; }
-  await loadTags(); await loadRecords(currentPage); renderTagManage();
+  const restore = withBtnLoading(document.getElementById('tag_rename_' + id), '保存中…');
+  try {
+    const res = await fetch('/api/tags/' + id, { method: 'PUT', headers: authHeaders(), body: JSON.stringify({ name, parentId }) });
+    const data = await res.json();
+    if (!res.ok) { showToast(data.error || '保存失败'); return; }
+    await loadTags(); await loadRecords(currentPage); renderTagManage();
+  } finally {
+    restore();
+  }
 }
 
 async function deleteTag(id) {
