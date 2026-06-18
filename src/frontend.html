@@ -988,8 +988,12 @@ async function saveNewRow() {
   const tagName = ((document.getElementById('nr_tag') || {}).value || '').trim();
   if (!date) { showToast('请选择日期'); return; }
   if (!done && !plan && !tagName) { showToast('请至少填写今日完成、明日计划或标签'); return; }
-  if (currentUser && allRecords.some(r => r.date === date && r.author_id === currentUser.id)) {
-    if (!confirm(date + ' 已有一条记录，确定要再提交一条吗？')) return;
+  if (currentUser && allRecords.some(r =>
+      r.author_id === currentUser.id &&
+      (r.done || '') === done && (r.plan || '') === plan &&
+      (r.problem || '') === problem && (r.thinking || '') === thinking &&
+      (r.important || '') === important)) {
+    if (!confirm('内容与已有记录完全相同，确定要再次提交吗？')) return;
   }
   isSaving = true;
   const restore = withBtnLoading(document.getElementById('nr_submit_btn'), '提交中…');
