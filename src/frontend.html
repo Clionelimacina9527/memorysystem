@@ -1376,6 +1376,17 @@ document.addEventListener('click', e => {
   if (panel && !panel.contains(e.target) && btn && !btn.contains(e.target)) panel.style.display = 'none';
 });
 
+window.addEventListener('beforeunload', () => {
+  if (!pendingDelete) return;
+  const ids = pendingDelete.ids;
+  clearTimeout(pendingDelete.timer);
+  ids.forEach(id => fetch('/api/worklogs/' + id, {
+    method: 'DELETE',
+    headers: { 'Authorization': 'Bearer ' + localStorage.getItem('memory_token') },
+    keepalive: true
+  }));
+});
+
 // ── Tag Management ─────────────────────────────────────────────────────────
 function renderTagManage() {
   const list = document.getElementById('tagManageList');
