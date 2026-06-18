@@ -984,7 +984,7 @@ function delRecord(id) {
   if (!confirm('确定删除这条记录？')) return;
   if (pendingDelete) commitPendingDelete();
   pendingDelete = { ids: [id] };
-  pendingDeleteIds = new Set([id]);
+  pendingDeleteIds.add(id);
   renderTable();
   showUndoToast('已删除 1 条记录');
   pendingDelete.timer = setTimeout(commitPendingDelete, UNDO_DELAY);
@@ -1002,8 +1002,9 @@ function hideUndoToast() {
 function undoDelete() {
   if (!pendingDelete) return;
   clearTimeout(pendingDelete.timer);
+  const ids = pendingDelete.ids;
   pendingDelete = null;
-  pendingDeleteIds = new Set();
+  ids.forEach(id => pendingDeleteIds.delete(id));
   hideUndoToast();
   renderTable();
   showToast('已撤销删除');
@@ -1020,11 +1021,12 @@ async function commitPendingDelete() {
     const res = await fetch('/api/worklogs/' + id, { method: 'DELETE', headers: authHeaders() });
     if (!res.ok) failed++;
   }));
-  pendingDeleteIds = new Set();
+  ids.forEach(id => pendingDeleteIds.delete(id));
   if (failed) showToast(failed + ' 条删除失败');
-  const remaining = allRecords.filter(r => !ids.includes(r.id));
-  const newPage = remaining.length === 0 && currentPage > 1 ? currentPage - 1 : currentPage;
-  await loadRecords(newPage);
+  allRecords = allRecords.filter(r => !ids.includes(r.id));
+  totalRecords = Math.max(0, totalRecords - ids.length);
+  if (allRecords.length === 0 && currentPage > 1) await loadRecords(currentPage - 1);
+  else renderTable();
 }
 
 async function saveRecordTag(id) {
@@ -1118,9 +1120,8 @@ function bulkDelete() {
   if (!ids.length) return;
   if (!confirm('确定删除选中的 ' + ids.length + ' 条记录？')) return;
   if (pendingDelete) commitPendingDelete();
-  ids.forEach(id => selectedIds.delete(id));
+  ids.forEach(id => { selectedIds.delete(id); pendingDeleteIds.add(id); });
   pendingDelete = { ids };
-  pendingDeleteIds = new Set(ids);
   renderTable();
   showUndoToast('已删除 ' + ids.length + ' 条记录');
   pendingDelete.timer = setTimeout(commitPendingDelete, UNDO_DELAY);
