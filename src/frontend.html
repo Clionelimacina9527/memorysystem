@@ -965,9 +965,18 @@ async function saveNewRow() {
       pendingNewRowFiles = [];
     }
     clearDraft();
+    // Optimistic insert: build the record locally and render immediately
+    const newRec = { id: newId, date, done, plan, problem, thinking, important,
+      author_id: currentUser.id, author_name: currentUser.name,
+      tag_id: null, tag_name: null, created_at: Math.floor(Date.now() / 1000) };
+    if (tagName) { const t = allTags.find(t => t.name === tagName); if (t) { newRec.tag_id = t.id; newRec.tag_name = t.name; } }
+    commentCounts[newId] = 0;
+    allRecords.unshift(newRec);
+    totalRecords++;
+    renderTable();
     showToast('提交成功 ✓');
-    await loadRecords(1);
     if (date === new Date().toISOString().split('T')[0]) document.getElementById('todayBanner').classList.remove('show');
+    loadRecords(1); // background sync — no await
   } else showToast('提交失败');
 }
 
