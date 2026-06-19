@@ -145,6 +145,8 @@ textarea.nr-inp{height:72px;resize:none;padding:6px 8px;line-height:1.5;vertical
 .notif-time{font-size:.7rem;color:#bbb;margin-top:3px;}
 .notif-empty{padding:24px 16px;text-align:center;color:var(--muted);font-size:.82rem;}
 .empty-msg{text-align:center;padding:50px;color:var(--muted);font-size:.86rem;}
+@keyframes ld{0%,100%{opacity:1}50%{opacity:.35}}
+.loading-msg{color:var(--accent)!important;animation:ld 1s ease-in-out infinite;}
 .pagination{display:flex;align-items:center;justify-content:center;gap:8px;padding:10px 20px 18px;background:transparent;}
 .page-btn{border:1px solid var(--border);background:var(--white);border-radius:5px;padding:5px 14px;font-size:.8rem;cursor:pointer;color:var(--text);font-family:'Noto Sans SC',sans-serif;box-shadow:0 1px 3px rgba(0,0,0,.05);}
 .page-btn:hover:not(:disabled){background:var(--accent-light);border-color:var(--accent);}
@@ -426,7 +428,7 @@ function startPolling() {
     if (document.visibilityState !== 'visible') return;
     if (newRowActive) return;
     if (pendingDelete) return;
-    loadRecords(currentPage);
+    loadRecords(currentPage, true);
   }, 30000);
 }
 
@@ -510,7 +512,7 @@ function doLogout() {
 }
 
 // ── Data Loading ───────────────────────────────────────────────────────────
-async function loadRecords(page) {
+async function loadRecords(page, silent) {
   page = page || currentPage;
   currentPage = page;
   commentCache = {};
@@ -521,18 +523,30 @@ async function loadRecords(page) {
   if (currentFilters.tag) params.set('tag', currentFilters.tag);
   if (currentFilters.keyword) params.set('keyword', currentFilters.keyword);
 
-  const res = await fetch('/api/worklogs?' + params, { headers: authHeaders() });
-  if (!res.ok) { if (res.status === 401) doLogout(); return; }
-  const data = await res.json();
+  if (!silent) {
+    const tb = document.getElementById('tableBody');
+    if (tb) tb.innerHTML = '<tr><td colspan="9" class="empty-msg loading-msg">加载中…</td></tr>';
+  }
+
+  let data, commentCountsData, tagsData;
+  try {
+    [data, commentCountsData, tagsData] = await Promise.all([
+      fetch('/api/worklogs?' + params, { headers: authHeaders() }).then(async r => {
+        if (!r.ok) { if (r.status === 401) doLogout(); throw new Error(); }
+        return r.json();
+      }),
+      fetch('/api/comment-counts', { headers: authHeaders() }).then(r => r.ok ? r.json() : {}),
+      fetch('/api/tags', { headers: authHeaders() }).then(r => r.ok ? r.json() : [])
+    ]);
+  } catch(e) { return; }
+
   allRecords = data.results;
   totalRecords = data.total;
   totalPages = Math.ceil(totalRecords / PAGE_SIZE) || 1;
   selectedIds = new Set(Array.from(selectedIds).filter(id => allRecords.some(r => r.id === id)));
-
-  const cRes = await fetch('/api/comment-counts', { headers: authHeaders() });
-  commentCounts = cRes.ok ? await cRes.json() : {};
-
-  await loadTags();
+  commentCounts = commentCountsData;
+  allTags = tagsData;
+  updateTagOptions();
   updateMemberDropdown(data.authors || []);
   updateTagFilterDropdown();
   renderTable();
@@ -1028,7 +1042,7 @@ async function saveNewRow() {
       renderTable();
       showToast('提交成功 ✓');
       if (date === new Date().toISOString().split('T')[0]) document.getElementById('todayBanner').classList.remove('show');
-      loadRecords(1); // background sync — no await
+      loadRecords(1, true); // background sync — no await
     } else showToast('提交失败');
   } finally {
     isSaving = false;
@@ -1513,7 +1527,7 @@ async function renameTag(id) {
     const res = await fetch('/api/tags/' + id, { method: 'PUT', headers: authHeaders(), body: JSON.stringify({ name, parentId }) });
     const data = await res.json();
     if (!res.ok) { showToast(data.error || '保存失败'); return; }
-    await loadTags(); await loadRecords(currentPage); renderTagManage();
+    await loadRecords(currentPage); renderTagManage();
   } finally {
     restore();
   }
@@ -1523,7 +1537,7 @@ async function deleteTag(id) {
   if (!confirm('确定删除这个标签？子标签会变为一级标签')) return;
   const res = await fetch('/api/tags/' + id, { method: 'DELETE', headers: authHeaders() });
   if (!res.ok) { showToast('删除失败'); return; }
-  await loadTags(); await loadRecords(currentPage); renderTagManage();
+  await loadRecords(currentPage); renderTagManage();
 }
 
 async function showTagByName(name) {
