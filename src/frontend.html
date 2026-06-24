@@ -370,6 +370,7 @@ let pendingDelete = null;
 const UNDO_DELAY = 5000;
 let isSaving = false;
 let pollingTimer = null;
+let expandedRowId = null;
 let newRowFileObjectUrls = [];
 
 // ── Utilities ──────────────────────────────────────────────────────────────
@@ -428,6 +429,7 @@ function startPolling() {
     if (document.visibilityState !== 'visible') return;
     if (newRowActive) return;
     if (pendingDelete) return;
+    if (expandedRowId !== null) return;
     loadRecords(currentPage, true);
   }, 30000);
 }
@@ -1242,10 +1244,12 @@ async function toggleExpand(id) {
   const isOpen = row.style.display !== 'none';
   document.querySelectorAll('.expand-row').forEach(r => r.style.display = 'none');
   document.querySelectorAll('.data-row').forEach(r => r.classList.remove('row-expanded'));
+  expandedRowId = null;
   if (isOpen) return;
   row.style.display = 'table-row';
   const dr = document.querySelector('tr[data-rid="' + id + '"]');
   if (dr) dr.classList.add('row-expanded');
+  expandedRowId = id;
   await Promise.all([loadComments(id), loadAttachments(id)]);
 }
 
