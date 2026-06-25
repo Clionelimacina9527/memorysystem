@@ -775,7 +775,7 @@ function renderTable() {
       '<input class="nr-tag" id="nr_tag_new" placeholder="新标签名…" style="display:none;flex:1" onkeydown="_nrTagConfirm(event)"/>' +
       '<button class="btn-sv" id="nr_tag_btn" onclick="_nrTagConfirm(null)" style="display:none;padding:3px 7px">✓</button></div>' +
       '<div class="nr-file-row"><label class="btn-attach-sm" for="nr_files">📎 附件</label>' +
-      '<input type="file" id="nr_files" multiple style="display:none" accept="image/jpeg,image/png,image/gif,image/webp,application/pdf" onchange="queueNewRowFiles(this)"/>' +
+      '<input type="file" id="nr_files" multiple style="display:none" accept="image/jpeg,image/png,image/gif,image/webp,application/pdf,text/html,.html" onchange="queueNewRowFiles(this)"/>' +
       '<div id="nr_file_preview" class="nr-file-preview"></div></div>' +
       '</div></td>' +
       '<td class="nc"><textarea class="nr-inp" id="nr_plan" placeholder="明日计划…" onkeydown="_nrkd(event)" oninput="onDraftInput()"></textarea></td>' +
@@ -827,7 +827,7 @@ function renderTable() {
         '<div class="attach-section">' +
           '<div class="attach-header"><span class="ef-label">附件</span>' +
           (canEdit ? '<label class="btn-attach" for="af_' + r.id + '">＋ 上传</label>' +
-            '<input type="file" id="af_' + r.id + '" style="display:none" accept="image/jpeg,image/png,image/gif,image/webp,application/pdf" onchange="uploadAttachment(' + r.id + ',this)"/>' : '') +
+            '<input type="file" id="af_' + r.id + '" style="display:none" accept="image/jpeg,image/png,image/gif,image/webp,application/pdf,text/html,.html" onchange="uploadAttachment(' + r.id + ',this)"/>' : '') +
           '</div>' +
           '<div class="attach-list" id="al_' + r.id + '"><span class="no-attach">–</span></div>' +
         '</div>' +
@@ -1205,7 +1205,7 @@ function bulkDelete() {
 }
 
 function queueNewRowFiles(input) {
-  const allowed = ['image/jpeg', 'image/png', 'image/gif', 'image/webp', 'application/pdf'];
+  const allowed = ['image/jpeg', 'image/png', 'image/gif', 'image/webp', 'application/pdf', 'text/html'];
   for (const f of input.files) {
     if (f.size > 5 * 1024 * 1024) { showToast(f.name + ' 超过5MB，已跳过'); continue; }
     if (!allowed.includes(f.type)) { showToast(f.name + ' 格式不支持，已跳过'); continue; }
@@ -1376,7 +1376,7 @@ async function uploadAttachment(wid, input) {
   input.value = '';
   if (!file) return;
   if (file.size > 5 * 1024 * 1024) { showToast('文件不能超过 5MB'); return; }
-  const allowed = ['image/jpeg', 'image/png', 'image/gif', 'image/webp', 'application/pdf'];
+  const allowed = ['image/jpeg', 'image/png', 'image/gif', 'image/webp', 'application/pdf', 'text/html'];
   if (!allowed.includes(file.type)) { showToast('仅支持 JPG / PNG / GIF / WebP 图片和 PDF'); return; }
   const el = document.getElementById('al_' + wid);
   if (el) el.innerHTML = '<span class="attach-uploading">上传中…</span>';

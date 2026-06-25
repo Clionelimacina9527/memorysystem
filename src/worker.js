@@ -242,7 +242,7 @@ export default {
         headers: {
           ...CORS,
           "Content-Type": type || "application/octet-stream",
-          "Content-Disposition": `inline; filename="${filename || key}"`,
+          "Content-Disposition": `${type === "text/html" ? "attachment" : "inline"}; filename="${filename || key}"`,
           "Cache-Control": "private, max-age=86400",
         }
       });
@@ -444,8 +444,8 @@ export default {
         const formData = await req.formData();
         const file = formData.get("file");
         if (!file) return json({ error: "没有文件" }, 400);
-        const allowed = ["image/jpeg", "image/png", "image/gif", "image/webp", "application/pdf"];
-        if (!allowed.includes(file.type)) return json({ error: "仅支持图片（JPG/PNG/GIF/WebP）和PDF" }, 400);
+        const allowed = ["image/jpeg", "image/png", "image/gif", "image/webp", "application/pdf", "text/html"];
+        if (!allowed.includes(file.type)) return json({ error: "仅支持图片（JPG/PNG/GIF/WebP）、PDF 和 HTML 文件" }, 400);
         if (file.size > 5 * 1024 * 1024) return json({ error: "文件不能超过5MB" }, 400);
         const key = crypto.randomUUID();
         const buf = await file.arrayBuffer();
