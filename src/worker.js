@@ -414,7 +414,7 @@ export default {
         "(SELECT COUNT(*) FROM worklogs wx WHERE wx.date > w.date OR (wx.date = w.date AND wx.created_at > w.created_at)) as before_count " +
         "FROM worklogs w WHERE w.id=?"
       ).bind(wid).first();
-      if (!row) return json({ error: "?????" }, 404);
+      if (!row) return json({ error: "记录不存在" }, 404);
       return json({ id: row.id, date: row.date, page: Math.floor((row.before_count || 0) / pageSize) + 1 });
     }
 

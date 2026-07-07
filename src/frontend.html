@@ -1425,17 +1425,22 @@ async function checkNotifications() {
     if (!items.length) { list.innerHTML = '<div class="notif-empty">暂无新回复</div>'; return; }
     list.innerHTML = items.map(n => {
       const t = n.created_at ? new Date(n.created_at * 1000).toLocaleDateString('zh-CN', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : '';
-      return '<div class="notif-item ' + (n.is_new ? 'unread' : '') + '" onclick="goToNotif(' + n.worklog_id + ',' + JSON.stringify(n.worklog_date) + ',' + (n.worklog_page || 1) + ')">' +
+      return '<div class="notif-item ' + (n.is_new ? 'unread' : '') + '" data-rid="' + n.worklog_id + '" data-date="' + escapeHTML(n.worklog_date || '') + '" data-page="' + (n.worklog_page || 1) + '">' +
         '<div class="notif-who"><span>' + escapeHTML(n.author_name) + '</span> 回复了你的记录「' + escapeHTML(n.worklog_date) + '」</div>' +
         '<div class="notif-time">' + t + '</div></div>';
     }).join('');
     window._notifs = items;
+    list.onclick = async function(e) {
+      const item = e.target.closest('.notif-item');
+      if (!item || !list.contains(item)) return;
+      await goToNotif(parseInt(item.dataset.rid), item.dataset.date || '', parseInt(item.dataset.page || '1'));
+    };
   } catch(e) {}
 }
 
 async function toggleNotif() {
   const panel = document.getElementById('notifPanel');
-  const isOpen = panel.style.display !== 'none';
+  const isOpen = getComputedStyle(panel).display !== 'none';
   panel.style.display = isOpen ? 'none' : 'block';
   if (!isOpen) {
     await fetch('/api/notifications/mark-read', { method: 'POST', headers: authHeaders() });
@@ -1466,7 +1471,7 @@ async function revealNotifRecord(rid) {
 
 async function goToNotif(rid, worklogDate, worklogPage) {
   document.getElementById('notifPanel').style.display = 'none';
-  showToast('???????');
+  showToast('正在定位记录…');
   if (await revealNotifRecord(rid)) return;
   let targetPage = Math.max(1, parseInt(worklogPage || 1));
   try {
@@ -1487,7 +1492,7 @@ async function goToNotif(rid, worklogDate, worklogPage) {
     await loadRecords(1);
     if (await revealNotifRecord(rid)) return;
   }
-  showToast('??????????????');
+  showToast('没找到这条记录，可能已被删除');
 }
 
 document.addEventListener('click', e => {
