@@ -56,6 +56,8 @@ tbody tr:last-child{border-bottom:none;}
 .data-row{cursor:pointer;}
 .data-row:hover{background:var(--accent-light)!important;}
 .data-row.row-expanded{background:var(--accent-light)!important;}
+.data-row.notif-focus{animation:notifPulse 1.8s ease-in-out 2;}
+@keyframes notifPulse{0%,100%{background:var(--white);}35%,70%{background:#fff3bf;}}
 .expand-row{background:#f7faff!important;}
 .expand-panel{padding:16px 24px 18px!important;border-top:2px solid var(--accent);}
 .expand-fields{display:flex;flex-wrap:wrap;gap:12px 24px;margin-bottom:14px;}
@@ -1423,7 +1425,7 @@ async function checkNotifications() {
     if (!items.length) { list.innerHTML = '<div class="notif-empty">暂无新回复</div>'; return; }
     list.innerHTML = items.map(n => {
       const t = n.created_at ? new Date(n.created_at * 1000).toLocaleDateString('zh-CN', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : '';
-      return '<div class="notif-item ' + (n.is_new ? 'unread' : '') + '" onclick="goToNotif(' + n.worklog_id + ',' + JSON.stringify(n.worklog_date) + ')">' +
+      return '<div class="notif-item ' + (n.is_new ? 'unread' : '') + '" onclick="goToNotif(' + n.worklog_id + ',' + JSON.stringify(n.worklog_date) + ',' + (n.worklog_page || 1) + ')">' +
         '<div class="notif-who"><span>' + escapeHTML(n.author_name) + '</span> 回复了你的记录「' + escapeHTML(n.worklog_date) + '」</div>' +
         '<div class="notif-time">' + t + '</div></div>';
     }).join('');
@@ -1442,25 +1444,42 @@ async function toggleNotif() {
   }
 }
 
-async function goToNotif(rid, worklogDate) {
-  document.getElementById('notifPanel').style.display = 'none';
+function clearNotifNavigationFilters() {
+  ['filterUser','filterDateFrom','filterDateTo','filterTag','filterKeyword'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.value = '';
+  });
+  readFilters();
+}
+
+async function revealNotifRecord(rid) {
   const row = document.querySelector('tr[data-rid="' + rid + '"]');
-  if (row) {
-    await toggleExpand(rid);
-    row.scrollIntoView({ behavior: 'smooth', block: 'center' });
-    return;
-  }
-  // Record not on current page — filter by date to find it
+  if (!row) return false;
+  const er = document.getElementById('er_' + rid);
+  if (!er || er.style.display === 'none') await toggleExpand(rid);
+  row.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  row.classList.remove('notif-focus');
+  void row.offsetWidth;
+  row.classList.add('notif-focus');
+  return true;
+}
+
+async function goToNotif(rid, worklogDate, worklogPage) {
+  document.getElementById('notifPanel').style.display = 'none';
+  showToast('正在定位记录…');
+  if (await revealNotifRecord(rid)) return;
+  const targetPage = Math.max(1, parseInt(worklogPage || 1));
+  clearNotifNavigationFilters();
+  await loadRecords(targetPage);
+  if (await revealNotifRecord(rid)) return;
   if (worklogDate) {
     document.getElementById('filterDateFrom').value = worklogDate;
     document.getElementById('filterDateTo').value = worklogDate;
     readFilters();
     await loadRecords(1);
-    setTimeout(async () => {
-      const row2 = document.querySelector('tr[data-rid="' + rid + '"]');
-      if (row2) { await toggleExpand(rid); row2.scrollIntoView({ behavior: 'smooth', block: 'center' }); }
-    }, 400);
+    if (await revealNotifRecord(rid)) return;
   }
+  showToast('没找到这条记录，可能已被删除');
 }
 
 document.addEventListener('click', e => {
