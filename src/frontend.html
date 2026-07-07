@@ -1466,9 +1466,17 @@ async function revealNotifRecord(rid) {
 
 async function goToNotif(rid, worklogDate, worklogPage) {
   document.getElementById('notifPanel').style.display = 'none';
-  showToast('正在定位记录…');
+  showToast('???????');
   if (await revealNotifRecord(rid)) return;
-  const targetPage = Math.max(1, parseInt(worklogPage || 1));
+  let targetPage = Math.max(1, parseInt(worklogPage || 1));
+  try {
+    const res = await fetch('/api/worklogs/' + rid + '/location?pageSize=' + PAGE_SIZE, { headers: authHeaders() });
+    if (res.ok) {
+      const loc = await res.json();
+      targetPage = Math.max(1, parseInt(loc.page || targetPage));
+      worklogDate = loc.date || worklogDate;
+    }
+  } catch(e) {}
   clearNotifNavigationFilters();
   await loadRecords(targetPage);
   if (await revealNotifRecord(rid)) return;
@@ -1479,7 +1487,7 @@ async function goToNotif(rid, worklogDate, worklogPage) {
     await loadRecords(1);
     if (await revealNotifRecord(rid)) return;
   }
-  showToast('没找到这条记录，可能已被删除');
+  showToast('??????????????');
 }
 
 document.addEventListener('click', e => {

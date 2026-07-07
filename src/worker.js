@@ -195,7 +195,7 @@ export default {
     if (method === "OPTIONS") return new Response(null, { headers: CORS });
 
     if (method === "GET" && (path === "/" || path === "/index.html")) {
-      return new Response(HTML_CONTENT, { headers: { "Content-Type": "text/html;charset=utf-8" } });
+      return new Response(HTML_CONTENT, { headers: { "Content-Type": "text/html;charset=utf-8", "Cache-Control": "no-store, no-cache, must-revalidate", "Pragma": "no-cache" } });
     }
 
     // --- Auth (no login required) ---
@@ -405,6 +405,19 @@ export default {
     }
 
     // --- Single worklog CRUD ---
+    const wlogLocationMatch = path.match(/^\/api\/worklogs\/(\d+)\/location$/);
+    if (wlogLocationMatch && method === "GET") {
+      const wid = parseInt(wlogLocationMatch[1]);
+      const pageSize = Math.min(100, Math.max(1, parseInt(url.searchParams.get("pageSize") || "50")));
+      const row = await env.DB.prepare(
+        "SELECT id, date, created_at, " +
+        "(SELECT COUNT(*) FROM worklogs wx WHERE wx.date > w.date OR (wx.date = w.date AND wx.created_at > w.created_at)) as before_count " +
+        "FROM worklogs w WHERE w.id=?"
+      ).bind(wid).first();
+      if (!row) return json({ error: "?????" }, 404);
+      return json({ id: row.id, date: row.date, page: Math.floor((row.before_count || 0) / pageSize) + 1 });
+    }
+
     const wlogMatch = path.match(/^\/api\/worklogs\/(\d+)$/);
     if (wlogMatch) {
       const wid = parseInt(wlogMatch[1]);
