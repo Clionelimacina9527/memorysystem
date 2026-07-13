@@ -128,6 +128,14 @@ async function initDB(db) {
     created_at INTEGER DEFAULT (strftime('%s','now')),
     FOREIGN KEY(worklog_id) REFERENCES worklogs(id) ON DELETE CASCADE
   )`).run();
+  await db.prepare(`CREATE TABLE IF NOT EXISTS notification_reads (
+    user_id INTEGER NOT NULL,
+    comment_id INTEGER NOT NULL,
+    read_at INTEGER DEFAULT (strftime('%s','now')),
+    PRIMARY KEY(user_id, comment_id),
+    FOREIGN KEY(user_id) REFERENCES users(id),
+    FOREIGN KEY(comment_id) REFERENCES comments(id) ON DELETE CASCADE
+  )`).run();
   await db.prepare(`CREATE TABLE IF NOT EXISTS projects (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     name TEXT UNIQUE NOT NULL,
@@ -592,21 +600,49 @@ export default {
       const lastSeen = dbUser?.notif_last_seen || 0;
       const pageSize = Math.min(100, Math.max(1, parseInt(url.searchParams.get("pageSize") || "50")));
       const rows = await env.DB.prepare(
-        "SELECT c.id, c.worklog_id, c.text, c.author_id, c.author_name, c.created_at, w.date as worklog_date, " +
+        "SELECT c.id, c.worklog_id, c.text, c.author_id, c.author_name, c.created_at, w.date as worklog_date, nr.read_at, " +
         "(SELECT COUNT(*) FROM worklogs wx WHERE wx.date > w.date OR (wx.date = w.date AND wx.created_at > w.created_at)) as before_count " +
         "FROM comments c JOIN worklogs w ON w.id=c.worklog_id " +
+        "LEFT JOIN notification_reads nr ON nr.comment_id=c.id AND nr.user_id=? " +
         "WHERE w.author_id=? AND c.author_id!=? ORDER BY c.created_at DESC"
-      ).bind(user.id, user.id).all();
-      const items = rows.results.map(r => ({
-        ...r,
-        worklog_page: Math.floor((r.before_count || 0) / pageSize) + 1,
-        is_new: r.created_at > lastSeen
-      }));
-      return json({ items, unread_count: items.filter(r => r.is_new).length });
+      ).bind(user.id, user.id, user.id).all();
+      const items = rows.results.map(r => {
+        const isRead = !!r.read_at || r.created_at <= lastSeen;
+        return {
+          ...r,
+          worklog_page: Math.floor((r.before_count || 0) / pageSize) + 1,
+          is_read: isRead,
+          is_new: !isRead
+        };
+      });
+      return json({ items, unread_count: items.filter(r => !r.is_read).length });
+    }
+
+    const notifReadMatch = path.match(/^\/api\/notifications\/(\d+)\/read$/);
+    if (notifReadMatch && method === "POST") {
+      const cid = parseInt(notifReadMatch[1]);
+      const cmt = await env.DB.prepare(
+        "SELECT c.id FROM comments c JOIN worklogs w ON w.id=c.worklog_id WHERE c.id=? AND w.author_id=? AND c.author_id!=?"
+      ).bind(cid, user.id, user.id).first();
+      if (!cmt) return json({ error: "Notification not found" }, 404);
+      await env.DB.prepare(
+        "INSERT INTO notification_reads(user_id, comment_id, read_at) VALUES(?,?,?) " +
+        "ON CONFLICT(user_id, comment_id) DO UPDATE SET read_at=excluded.read_at"
+      ).bind(user.id, cid, Math.floor(Date.now() / 1000)).run();
+      return json({ ok: true });
     }
 
     if (path === "/api/notifications/mark-read" && method === "POST") {
       const now = Math.floor(Date.now() / 1000);
+      const rows = await env.DB.prepare(
+        "SELECT c.id FROM comments c JOIN worklogs w ON w.id=c.worklog_id WHERE w.author_id=? AND c.author_id!=?"
+      ).bind(user.id, user.id).all();
+      for (const row of rows.results) {
+        await env.DB.prepare(
+          "INSERT INTO notification_reads(user_id, comment_id, read_at) VALUES(?,?,?) " +
+          "ON CONFLICT(user_id, comment_id) DO UPDATE SET read_at=excluded.read_at"
+        ).bind(user.id, row.id, now).run();
+      }
       await env.DB.prepare("UPDATE users SET notif_last_seen=? WHERE id=?").bind(now, user.id).run();
       return json({ ok: true });
     }

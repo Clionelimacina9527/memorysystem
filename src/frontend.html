@@ -142,9 +142,14 @@ textarea.nr-inp{height:72px;resize:none;padding:6px 8px;line-height:1.5;vertical
 .notif-item:last-child{border-bottom:none;}
 .notif-item:hover{background:var(--accent-light);}
 .notif-item.unread{background:#fff8f0;}
+.notif-item.read{opacity:.78;}
 .notif-who{font-size:.8rem;font-weight:600;color:var(--text);margin-bottom:3px;}
 .notif-who span{color:var(--accent);}
+.notif-foot{display:flex;align-items:center;justify-content:space-between;gap:8px;}
 .notif-time{font-size:.7rem;color:#bbb;margin-top:3px;}
+.notif-read-state{font-size:.68rem;border-radius:10px;padding:1px 7px;margin-top:3px;white-space:nowrap;}
+.notif-read-state.unread{background:#ffe2bf;color:#b45309;}
+.notif-read-state.read{background:#eef1f5;color:var(--muted);}
 .notif-empty{padding:24px 16px;text-align:center;color:var(--muted);font-size:.82rem;}
 .empty-msg{text-align:center;padding:50px;color:var(--muted);font-size:.86rem;}
 @keyframes ld{0%,100%{opacity:1}50%{opacity:.35}}
@@ -1422,31 +1427,46 @@ async function checkNotifications() {
       btn.style.display = 'none';
     }
     const list = document.getElementById('notifList');
-    if (!items.length) { list.innerHTML = '<div class="notif-empty">暂无新回复</div>'; return; }
+    if (!items.length) { list.innerHTML = '<div class="notif-empty">\u6682\u65e0\u65b0\u56de\u590d</div>'; return; }
     list.innerHTML = items.map(n => {
       const t = n.created_at ? new Date(n.created_at * 1000).toLocaleDateString('zh-CN', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : '';
-      return '<div class="notif-item ' + (n.is_new ? 'unread' : '') + '" data-rid="' + n.worklog_id + '" data-date="' + escapeHTML(n.worklog_date || '') + '" data-page="' + (n.worklog_page || 1) + '">' +
-        '<div class="notif-who"><span>' + escapeHTML(n.author_name) + '</span> 回复了你的记录「' + escapeHTML(n.worklog_date) + '」</div>' +
-        '<div class="notif-time">' + t + '</div></div>';
+      const isUnread = !n.is_read;
+      return '<div class="notif-item ' + (isUnread ? 'unread' : 'read') + '" data-cid="' + n.id + '" data-rid="' + n.worklog_id + '" data-date="' + escapeHTML(n.worklog_date || '') + '" data-page="' + (n.worklog_page || 1) + '">' +
+        '<div class="notif-who"><span>' + escapeHTML(n.author_name) + '</span> \u56de\u590d\u4e86\u4f60\u7684\u8bb0\u5f55\u300c' + escapeHTML(n.worklog_date) + '\u300d</div>' +
+        '<div class="notif-foot"><div class="notif-time">' + t + '</div><span class="notif-read-state ' + (isUnread ? 'unread' : 'read') + '">' + (isUnread ? '\u672a\u8bfb' : '\u5df2\u8bfb') + '</span></div></div>';
     }).join('');
     window._notifs = items;
     list.onclick = async function(e) {
       const item = e.target.closest('.notif-item');
       if (!item || !list.contains(item)) return;
+      await markNotificationRead(parseInt(item.dataset.cid), item);
       await goToNotif(parseInt(item.dataset.rid), item.dataset.date || '', parseInt(item.dataset.page || '1'));
     };
   } catch(e) {}
+}
+
+async function markNotificationRead(commentId, item) {
+  if (!commentId || !item || item.classList.contains('read')) return;
+  const res = await fetch('/api/notifications/' + commentId + '/read', { method: 'POST', headers: authHeaders() });
+  if (!res.ok) return;
+  item.classList.remove('unread');
+  item.classList.add('read');
+  const state = item.querySelector('.notif-read-state');
+  if (state) {
+    state.classList.remove('unread');
+    state.classList.add('read');
+    state.textContent = '\u5df2\u8bfb';
+  }
+  const badge = document.getElementById('notifCount');
+  const next = Math.max(0, parseInt(badge.textContent || '0') - 1);
+  badge.textContent = next;
+  badge.style.display = next > 0 ? 'inline' : 'none';
 }
 
 async function toggleNotif() {
   const panel = document.getElementById('notifPanel');
   const isOpen = getComputedStyle(panel).display !== 'none';
   panel.style.display = isOpen ? 'none' : 'block';
-  if (!isOpen) {
-    await fetch('/api/notifications/mark-read', { method: 'POST', headers: authHeaders() });
-    document.getElementById('notifCount').style.display = 'none';
-    document.querySelectorAll('.notif-item').forEach(el => el.classList.remove('unread'));
-  }
 }
 
 function clearNotifNavigationFilters() {
