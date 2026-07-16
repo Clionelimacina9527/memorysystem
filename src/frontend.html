@@ -310,6 +310,10 @@ textarea.nr-inp{height:72px;resize:none;padding:6px 8px;line-height:1.5;vertical
       <div class="modal-title" style="margin-bottom:0">用户管理</div>
       <button class="btn-logout" onclick="hideAdminPanel()">关闭</button>
     </div>
+    <div style="display:flex;gap:8px;align-items:center;margin-bottom:14px;">
+      <button class="btn-auth" id="testReminderBtn" style="padding:8px 12px;" onclick="testDailyReminder()">测试飞书提醒</button>
+      <div id="testReminderResult" style="font-size:.76rem;color:#8a94a6;line-height:1.5;"></div>
+    </div>
     <div id="adminUserList"></div>
   </div>
 </div>
@@ -1641,6 +1645,8 @@ function hideStatsPanel() { hideModal('statsModal'); }
 // ── Admin ──────────────────────────────────────────────────────────────────
 async function showAdminPanel() {
   showModal('adminModal');
+  const testResult = document.getElementById('testReminderResult');
+  if (testResult) testResult.textContent = '';
   const res = await fetch('/api/admin/users', { headers: authHeaders() });
   const users = await res.json();
   document.getElementById('adminUserList').innerHTML = users.map(u =>
@@ -1649,6 +1655,32 @@ async function showAdminPanel() {
     '<div style="font-size:.75rem;color:#8a94a6;">' + escapeHTML(u.email) + '</div></div>' +
     '<button class="btn-logout" onclick="showResetModal(' + u.id + ',this.dataset.name)" data-name="' + escapeHTML(u.name) + '">重置密码</button></div>'
   ).join('');
+}
+async function testDailyReminder() {
+  const btn = document.getElementById('testReminderBtn');
+  const resultEl = document.getElementById('testReminderResult');
+  btn.disabled = true;
+  const oldText = btn.textContent;
+  btn.textContent = '\u53d1\u9001\u4e2d...';
+  resultEl.style.color = '#8a94a6';
+  resultEl.textContent = '\u6b63\u5728\u53d1\u9001\u6d4b\u8bd5\u6d88\u606f';
+  try {
+    const res = await fetch('/api/admin/test-daily-reminder', { method: 'POST', headers: authHeaders() });
+    const data = await res.json();
+    if (!res.ok || !data.ok) {
+      resultEl.style.color = '#e5534b';
+      resultEl.textContent = '\u53d1\u9001\u5931\u8d25\uff1a' + (data.error || data.response || res.status);
+      return;
+    }
+    resultEl.style.color = '#2f9e44';
+    resultEl.textContent = '\u5df2\u53d1\u9001\u3002\u672a\u586b\uff1a' + data.missingCount + '\uff0c\u53bb\u91cd\uff1a' + (data.deduped ? '\u662f' : '\u5426');
+  } catch (e) {
+    resultEl.style.color = '#e5534b';
+    resultEl.textContent = '\u53d1\u9001\u5931\u8d25\uff1a' + e.message;
+  } finally {
+    btn.disabled = false;
+    btn.textContent = oldText;
+  }
 }
 function hideAdminPanel() { hideModal('adminModal'); }
 

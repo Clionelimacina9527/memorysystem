@@ -232,6 +232,63 @@ async function sendDailyWorklogReminder(env) {
   }
 }
 
+async function inspectDailyWorklogReminder(env) {
+  const today = getShanghaiDateString();
+  await initDB(env.DB);
+  const users = await env.DB.prepare("SELECT id, name FROM users ORDER BY name").all();
+  const doneRows = await env.DB.prepare("SELECT DISTINCT author_id FROM worklogs WHERE date=?").bind(today).all();
+  const doneIds = new Set(doneRows.results.map(row => row.author_id));
+  const missing = users.results.filter(user => !doneIds.has(user.id));
+  const dedupeKey = "daily-worklog-reminder:" + today;
+  const dedupeValue = await env.KV.get(dedupeKey);
+  return {
+    today,
+    cron: "0 7 * * MON-FRI",
+    hookConfigured: !!env.FEISHU_HOOK,
+    dedupeKey,
+    deduped: !!dedupeValue,
+    dedupeValue,
+    userCount: users.results.length,
+    doneCount: doneIds.size,
+    missingCount: missing.length,
+    missingNames: missing.map(user => user.name)
+  };
+}
+
+async function sendDailyWorklogReminderTest(env, actorName) {
+  const snapshot = await inspectDailyWorklogReminder(env);
+  if (!env.FEISHU_HOOK) {
+    return { ...snapshot, ok: false, error: "FEISHU_HOOK is not configured" };
+  }
+  const content =
+    "\u3010\u6D4B\u8BD5\u3011\u98DE\u4E66\u6BCF\u65E5\u586B\u5199\u63D0\u9192\u901A\u9053\u5DF2\u6253\u901A\u3002\n\n" +
+    "\u89E6\u53D1\u4EBA\uFF1A" + (actorName || "admin") + "\n" +
+    "\u4ECA\u65E5\u65E5\u671F\uFF1A" + snapshot.today + "\n" +
+    "\u5B9A\u65F6\u914D\u7F6E\uFF1A" + snapshot.cron + " \uFF08\u5317\u4EAC\u65F6\u95F4\u5DE5\u4F5C\u65E5 15:00\uFF09\n" +
+    "\u7528\u6237\u6570\uFF1A" + snapshot.userCount + "\uFF0C\u5DF2\u586B\uFF1A" + snapshot.doneCount + "\uFF0C\u672A\u586B\uFF1A" + snapshot.missingCount + "\n" +
+    "\u672A\u586B\u4EBA\u5458\uFF1A" + (snapshot.missingNames.length ? snapshot.missingNames.join("\u3001") : "\u65E0") + "\n" +
+    "\u4ECA\u5929\u662F\u5426\u5DF2\u88AB\u53BB\u91CD\uFF1A" + (snapshot.deduped ? "\u662F" : "\u5426");
+  const res = await fetch(env.FEISHU_HOOK, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      msg_type: "interactive",
+      card: {
+        header: { title: { tag: "plain_text", content: "\uD83D\uDD27 \u98DE\u4E66\u63D0\u9192\u6D4B\u8BD5" }, template: "blue" },
+        elements: [{
+          tag: "div",
+          text: { tag: "lark_md", content }
+        }, {
+          tag: "action",
+          actions: [{ tag: "button", text: { tag: "plain_text", content: "\uD83D\uDC49 \u6253\u5F00\u8BB0\u5F55\u7CFB\u7EDF" }, type: "primary", url: SITE_URL }]
+        }]
+      }
+    })
+  });
+  const responseText = await res.text().catch(() => "");
+  return { ...snapshot, ok: res.ok, status: res.status, response: responseText.slice(0, 500) };
+}
+
 const CORS = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Methods": "GET,POST,PUT,DELETE,OPTIONS",
@@ -656,6 +713,12 @@ export default {
     }
 
     // --- Admin ---
+    if (path === "/api/admin/test-daily-reminder" && method === "POST") {
+      if (!isAdmin) return json({ error: "无权限" }, 403);
+      const result = await sendDailyWorklogReminderTest(env, user.name);
+      return json(result, result.ok ? 200 : 500);
+    }
+
     if (path === "/api/admin/users" && method === "GET") {
       if (!isAdmin) return json({ error: "无权限" }, 403);
       const rows = await env.DB.prepare("SELECT id, name, email, created_at FROM users").all();
