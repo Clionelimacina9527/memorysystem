@@ -286,7 +286,22 @@ async function sendDailyWorklogReminderTest(env, actorName) {
     })
   });
   const responseText = await res.text().catch(() => "");
-  return { ...snapshot, ok: res.ok, status: res.status, response: responseText.slice(0, 500) };
+  let responseJson = null;
+  try {
+    responseJson = responseText ? JSON.parse(responseText) : null;
+  } catch {}
+  const feishuCode = responseJson?.code ?? responseJson?.StatusCode;
+  const feishuMessage = responseJson?.msg ?? responseJson?.StatusMessage ?? responseText;
+  const ok = res.ok && (feishuCode === undefined || feishuCode === 0);
+  return {
+    ...snapshot,
+    ok,
+    httpOk: res.ok,
+    status: res.status,
+    feishuCode,
+    feishuMessage,
+    response: responseText.slice(0, 500)
+  };
 }
 
 const CORS = {

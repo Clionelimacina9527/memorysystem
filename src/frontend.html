@@ -1669,11 +1669,11 @@ async function testDailyReminder() {
     const data = await res.json();
     if (!res.ok || !data.ok) {
       resultEl.style.color = '#e5534b';
-      resultEl.textContent = '\u53d1\u9001\u5931\u8d25\uff1a' + (data.error || data.response || res.status);
+      resultEl.textContent = '\u53d1\u9001\u5931\u8d25\uff1aHTTP ' + (data.status || res.status) + '\uff0c\u98de\u4e66\u7801\uff1a' + (data.feishuCode ?? '-') + '\uff0c' + (data.feishuMessage || data.error || data.response || '');
       return;
     }
     resultEl.style.color = '#2f9e44';
-    resultEl.textContent = '\u5df2\u53d1\u9001\u3002\u672a\u586b\uff1a' + data.missingCount + '\uff0c\u53bb\u91cd\uff1a' + (data.deduped ? '\u662f' : '\u5426');
+    resultEl.textContent = '\u5df2\u53d1\u9001\u3002HTTP ' + data.status + '\uff0c\u98de\u4e66\u7801\uff1a' + (data.feishuCode ?? '-') + '\uff0c\u672a\u586b\uff1a' + data.missingCount + '\uff0c\u53bb\u91cd\uff1a' + (data.deduped ? '\u662f' : '\u5426');
   } catch (e) {
     resultEl.style.color = '#e5534b';
     resultEl.textContent = '\u53d1\u9001\u5931\u8d25\uff1a' + e.message;
