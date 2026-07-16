@@ -18,5 +18,5 @@ id = "4de8c374b2ea456d86b11aac9fb8143c"
 
 
 [triggers]
-crons = ["30 7 * * 1-5"]
+crons = ["0 7 * * MON-FRI"]
 # 所有敏感配置通过 Cloudflare Secrets 管理，不写入此文件
