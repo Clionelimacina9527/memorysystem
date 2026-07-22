@@ -209,8 +209,7 @@ async function sendDailyWorklogReminder(env) {
     await env.KV.put(dedupeKey, "all-done", { expirationTtl: 36 * 3600 });
     return;
   }
-  const missingNames = missing.map(user => user.name).join("\u3001");
-  const content = "Hi \u{1F44B}\n\n\u4ECA\u5929\u8FD8\u6709 **" + missing.length + "** \u4F4D\u540C\u5B66\u7684\u8BB0\u5FC6\u8BB0\u5F55\u8FD8\u6CA1\u586B\uFF1A **" + missingNames + "**\n\n\u8BF7\u8BB0\u5F97\u4ECA\u5929\u62BD\u7A7A\u8865\u4E00\u4E0B\u54E6\uFF5E\n\n\u{1F4C5} \u586B\u5199\u5185\u5BB9\uFF1A\u4ECA\u65E5\u5B8C\u6210\u3001\u660E\u65E5\u8BA1\u5212\u3001\u9047\u5230\u95EE\u9898\u3001\u611F\u609F\u601D\u8003";
+  const content = "Hi \u{1F44B}\n\n\u4ECA\u5929\u7684**\u8BB0\u5FC6\u8BB0\u5F55**\u8FD8\u6CA1\u586B\u54E6\uFF0C\u8BF7\u8BB0\u5F97\u586B\u5199\uFF01\n\n\u{1F4C5} \u586B\u5199\u5185\u5BB9\uFF1A\u4ECA\u65E5\u5B8C\u6210\u3001\u660E\u65E5\u8BA1\u5212\u3001\u9047\u5230\u95EE\u9898\u3001\u611F\u609F\u601D\u8003";
   const res = await fetch(FEISHU_HOOK, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
